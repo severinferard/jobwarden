@@ -5,11 +5,12 @@ import signal
 import subprocess
 import sys
 import time
+import unittest
 
 from jobwarden import core, reader
 from unittest import mock
 
-from tests.base import JOBWARDEN, ROOT, UUID_A, UUID_B, Base, read_file, wait_for, write_exe
+from tests.base import HOSTSTATS, JOBWARDEN, ROOT, UUID_A, UUID_B, Base, read_file, wait_for, write_exe
 
 
 class Dashboard(Base):
@@ -45,6 +46,7 @@ class Dashboard(Base):
             open(core.socket_path("box2", {"ssh": "user@h"}), "w").close()
         self.assertIn("ControlMaster=no", self.commands()["box2"])
 
+    @unittest.skipUnless(os.path.exists(HOSTSTATS), "hoststats isn't here")
     def test_project_example_runs(self):
         self.save_hosts({"box1": {"ssh": "local"}})
         r = subprocess.run(
@@ -141,6 +143,7 @@ class NoCache(Base):
         self.assertNotIn("gpu_stats", st)
         self.assertEqual(st["gpu"]["uuid"], UUID_B)
 
+    @unittest.skipUnless(os.path.exists(HOSTSTATS), "hoststats isn't here")
     def test_job_config_example_shows_live_numbers(self):
         cfg = os.path.join(ROOT, "examples/job_config.py")
         self.jobrun("n7", "--gpu", "2060", "--", "sleep 5")

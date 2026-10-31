@@ -274,6 +274,8 @@ If the supervisor's heartbeat goes quiet for 60 s, readers report `orphan` when 
 python3 -m unittest discover -s tests -t .
 ```
 
+To release, set the version in `pyproject.toml` and push a matching tag such as `v0.1.1`. GitHub Actions runs the tests and publishes to PyPI.
+
 The tests take about 2 minutes and use no network, real GPU or billable service: SSH is a stub or a throwaway `sshd` on localhost, and `HOME` is a temp folder.
 
 `examples/project_dock.py` and `examples/job_config.py` also use `hoststats`, a separate package for CPU and GPU numbers that isn't published yet.
