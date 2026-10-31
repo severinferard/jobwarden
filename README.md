@@ -1,9 +1,11 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
-  <img src="docs/logo-light.svg" alt="" width="96">
-</picture>
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+    <img src="docs/logo-light.svg" alt="" width="96">
+  </picture>
 
-# jobwarden
+  <h1>jobwarden</h1>
+</div>
 
 **Watch long-running jobs live, on this machine or over SSH, and let your AI agent get woken when they need attention.**
 
