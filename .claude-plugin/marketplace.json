@@ -1,0 +1,16 @@
+{
+  "name": "jobwarden",
+  "owner": {
+    "name": "Séverin Férard"
+  },
+  "metadata": {
+    "description": "Long-running jobs for AI agents: watch them live, and get woken when they need attention"
+  },
+  "plugins": [
+    {
+      "name": "jobwarden",
+      "source": "./plugins/jobwarden",
+      "description": "Run long jobs, locally or over SSH, and get woken when they finish, fail or go wrong"
+    }
+  ]
+}

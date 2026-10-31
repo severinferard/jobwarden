@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Claude Code PostToolUse hook (Bash): when a command starts a job, remind the session to watch it.
 
-Silent otherwise, and never fails the tool call. In ~/.claude/settings.json, under hooks.PostToolUse with matcher "Bash".
+Silent otherwise, and never fails the tool call.
 """
 
 import json
@@ -10,8 +10,8 @@ import sys
 
 LAUNCH = re.compile(r"\bjobwarden\s+run\b")
 REMINDER = (
-    "This command started a job. If it will run longer than about 5 minutes, start `jobwarden wait <name>` as a background "
-    "command now, so this session is woken if the job fails or stalls, and tell the user `jobwarden watch <name>`."
+    "This command started a job. If it will run longer than a few minutes, start `jobwarden wait <name>` as a background "
+    "command now, so this session is woken when it ends or goes wrong, and tell the user about `jobwarden watch <name>`."
 )
 
 

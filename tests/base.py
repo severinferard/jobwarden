@@ -22,7 +22,7 @@ JOBRUN = os.path.join(ROOT, "jobwarden", "jobrun.py")
 JOBWARDEN = [sys.executable, "-m", "jobwarden"]
 sys.path.insert(0, ROOT)
 
-HOOK = os.path.join(ROOT, "examples/claude-code/job_launch.py")
+HOOK = os.path.join(ROOT, "plugins/jobwarden/scripts/remind_waiter.py")
 UUID_A, UUID_B = "GPU-aaaa", "GPU-bbbb"
 HOSTSTATS = os.path.expanduser("~/Code/hoststats")
 

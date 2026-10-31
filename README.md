@@ -61,7 +61,12 @@ The usual loop for a coding agent:
 2. Start `jobwarden wait <name>` as a background command, adding `--check` if a run can go wrong without failing.
 3. When it exits, read the line and the exit code ([the full list](#waiting-for-a-job)). To diagnose, read `~/.jobwarden/jobs/<name>/log` on the job's host with normal tools, or use `jobwarden logs <name>` for the last lines.
 
-In Claude Code, a background command's exit wakes the session, so the agent needs no polling at all. Any agent or script that can run a command and read its exit code can use the same loop, but how it gets woken depends on that tool. `examples/claude-code/job_launch.py` is a small Claude Code hook that reminds a session to do this after a launch.
+In Claude Code, a background command's exit wakes the session, so the agent needs no polling at all. Any agent or script that can run a command and read its exit code can use the same loop, but how it gets woken depends on that tool. **In Claude Code, install the plugin**, and your agent uses all this by itself. It teaches the loop above, and reminds a session to start a waiter after a launch. It needs the `jobwarden` command installed too, and tells you if it's missing.
+
+```
+/plugin marketplace add severinferard/jobwarden
+/plugin install jobwarden@jobwarden
+```
 
 ## Running a job
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "jobwarden"
-version = "0.1.0"
+version = "0.1.1"
 description = "Watch long-running jobs live, locally or over SSH, and wake your AI agent when they need attention"
 readme = "README.md"
 requires-python = ">=3.10"

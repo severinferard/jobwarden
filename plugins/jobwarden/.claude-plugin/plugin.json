@@ -1,0 +1,10 @@
+{
+  "name": "jobwarden",
+  "version": "0.1.1",
+  "description": "Run long jobs, locally or over SSH, and get woken when they finish, fail or go wrong",
+  "author": { "name": "Séverin Férard" },
+  "homepage": "https://github.com/severinferard/jobwarden",
+  "repository": "https://github.com/severinferard/jobwarden",
+  "license": "MIT",
+  "keywords": ["jobs", "training", "gpu", "ssh", "monitoring"]
+}
