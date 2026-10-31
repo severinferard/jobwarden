@@ -218,4 +218,4 @@ The tests take about 2 minutes and use no network, real GPU or billable service:
 
 `examples/project_dock.py` and `examples/job_config.py` also use `hoststats`, a separate package for CPU and GPU numbers that isn't published yet.
 
-No licence has been chosen yet.
+MIT licence: see `LICENSE`.
