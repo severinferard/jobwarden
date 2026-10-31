@@ -1,135 +1,221 @@
 # jobwarden
 
-One tested way to launch, watch and wake on long jobs, across hosts. Stdlib Python 3.10+, no dependencies.
-
-`~/jobs/<name>/status.json` on the host, written by `jobrun`, is the only record. Nothing about jobs is saved on your machine:
-every reader reads the hosts directly, over each host's one shared SSH connection.
-
-| Piece | Runs on | Does |
-|:--|:--|:--|
-| `jobwarden/jobrun.py` | the host (installed there as one file) | starts a job detached, records it in `~/jobs/<name>/{log,status.json}`, pins and reserves its GPU, decides done or failed |
-| `jobwarden/cli.py` | this machine | the one command: `run`, `watch`, `wait`, `status`, `logs`, `stop`, `clear`, `host`, `install` (`jobwarden --help`) |
-| `jobwarden/__init__.py` | this machine | what a script calls: `jobwarden.jobs()`, `jobwarden.live()`, `jobwarden.down()`, `jobwarden.hosts()`, `jobwarden.ssh_command()` |
-| `jobwarden/reader.py`, `jobwarden/on_host.py` | this machine, host | reads the hosts (a small script sent to `python3 -`, answering in JSON) and interprets a job's status |
-| `jobwarden/core.py` | this machine | hosts (the project's `.jobwarden/hosts.json`), transport |
-| `jobwarden/wait.py` | this machine | `jobwarden wait`: waiter a Claude session (or a script) starts in the background: exits on done, failed, stalled, unreachable, or when your own `--check` says so |
-| `jobwarden/watch.py` | this machine | `jobwarden watch`: follows jobs live, named ones in detail (with `--config`) or all of them. Closing it interrupts nothing |
-
-**Notifications** (`jobwarden/notify.py`): per reader process, off by default. `jobwarden wait` and `jobwarden watch` take `--notify '<command>'`
-and run it on each event they see themselves. The command gets `$JOBWARDEN_TITLE`, `$JOBWARDEN_BODY`, `$JOBWARDEN_EVENT`, `$JOBWARDEN_JOB`
-and `$JOBWARDEN_HOST`, for any terminal or service:
+Launch long jobs on your own machines over SSH, follow them from anywhere, and get woken when they need you. It's built for people, and for AI coding agents that shouldn't have to sit and watch a training run.
 
 ```sh
-jobwarden wait ft1 --notify 'cmux notify --title "$JOBWARDEN_TITLE" --body "$JOBWARDEN_BODY"'
-jobwarden wait ft1 --notify 'osascript -e "display notification \"$JOBWARDEN_BODY\" with title \"$JOBWARDEN_TITLE\""'
-jobwarden wait ft1 --notify 'notify-send "$JOBWARDEN_TITLE" "$JOBWARDEN_BODY"'
+jobwarden run train --host box1 --gpu 2080 -- 'python train.py'
+jobwarden watch train     # a live view: bar, ETA, metrics
+jobwarden wait train      # blocks until it's done, failed, stalled, or your own check complains
 ```
-Dashboards and `jobwarden status` never notify. No such process running means no notification, though the record stays on the host.
 
-**Claude Code**: `examples/claude-code/job_launch.py` is a small optional hook reminding a session to watch what it launched.
+- **Jobs survive you.** A job keeps running if your laptop sleeps or SSH drops.
+- **No daemon, no server, no database.** The only record is a JSON file next to the job on its host, so any viewer can come and go.
+- **"Exit 0" isn't taken on trust.** A job that ran too briefly or didn't write its output counts as failed.
+- **Safe on shared GPUs.** A busy card is refused, and a reservation stops two jobs picking the same one.
+- **No dependencies.** It's standard-library Python 3.10+, on your machine and on the hosts.
 
-**Per project**: hosts live in the project, in the nearest `.jobwarden/hosts.json` from the current folder upwards (`$JOBWARDEN_HOSTS`
-overrides it); without one, only this machine is known. A project keeps `.jobwarden/hosts.json`, and a dashboard script next to it if it wants one.
+Works with a laptop and a few SSH boxes, and rented pods. It isn't a cluster scheduler. It's been used from macOS with Linux hosts; other setups, and real rented pods, are untested.
 
-**Integrating**, from least to most work:
+## Install
 
-| | One-off | Live |
+```sh
+uv tool install git+https://github.com/severinferard/jobwarden   # or: pipx install git+https://...
+```
+
+Without any setup, jobs run on your own machine:
+
+```sh
+jobwarden run hello -- 'sleep 30; echo done'
+jobwarden wait hello
+```
+
+To use a remote host, run these inside your project. Hosts are saved per project, in `.jobwarden/hosts.json`:
+
+```sh
+jobwarden host add box1 --ssh user@10.0.0.2          # optional: --jump user@gateway --port 2222
+jobwarden install box1                               # copies jobrun to the host and names its GPUs
+```
+
+jobwarden finds the nearest `.jobwarden/hosts.json` from the current folder upwards. Outside a project it only knows your own machine, and says so. `ssh` to the host must already work without a password prompt, and the host needs `python3` 3.10+.
+
+## Running a job
+
+```sh
+jobwarden run train --host box1 --gpu 2080 --wait-gpu \
+    --cwd ~/project --project demo --summary "Fine-tune v3 on the new dataset" \
+    --min-runtime 600 --expect out/model.gguf \
+    -- 'python train.py'
+```
+
+| Option | What it does |
+|:--|:--|
+| `--host` | where to run (default: this machine) |
+| `--gpu` | a card's short name, `any` or a UUID. With no `--gpu`, the job sees no GPU |
+| `--wait-gpu` | queue for a busy card instead of being refused |
+| `--force` | use a busy card anyway |
+| `--min-runtime SECONDS` | exit 0 sooner than this counts as failed |
+| `--expect FILE` | exit 0 without this file, non-empty and newer than the start, counts as failed (repeatable) |
+| `--project`, `--summary`, `--cwd` | a label for grouping, text for the viewer, and the working folder |
+
+**Quote the command as one argument**, so that variables expand on the host.
+
+**Progress:** print lines like these and you get a bar, an ETA, metrics and stall detection. The word `step` can be anything.
+
+```
+12:30:01 step 120/900 loss 0.85 1.2s/step
+12:30:01 stage export
+```
+
+**Docker:** use both variables, and no `-d`. jobwarden already detaches the job, and it refuses a `docker run` it can see breaking these rules. Put them in any script your job runs too, since it can't check inside those.
+
+```sh
+jobwarden run train --host box1 --gpu 2080 -- \
+    'docker run --rm --name "$JOB_CONTAINER" --gpus "device=$JOB_GPU" img python train.py'
+```
+
+## Following jobs
+
+```sh
+jobwarden watch train               # one job in detail; --once prints one frame
+jobwarden watch --project demo      # every job, compact; picks up new ones and never ends
+jobwarden status                    # a one-off list; --all includes hidden jobs
+jobwarden logs train -n 50 -f       # finds the host for you; -f follows until the job ends
+jobwarden stop train --grace 30     # SIGTERM, then SIGKILL after the grace
+jobwarden clear train               # hide a job from views; the job carries on
+```
+
+Viewers are read-only, so closing one interrupts nothing. Finished jobs leave views after 60 minutes (`$JOBWARDEN_KEEP_MIN`), and nothing in `~/jobs` is ever deleted.
+
+`stop` only reaches that job's process group and its container, and records the state `stopped`. It never stops a pod: a job ending on a host added with `--temporary` is reported as "may still be billing".
+
+To show something specific to a job in `watch`, such as a results table or live GPU numbers, pass `--config job.py`. See `jobwarden watch --help` and `examples/job_config.py`.
+
+## Waiting for a job
+
+`jobwarden wait` blocks, prints one line, and exits with a code that says why. Start it as a background command from an AI agent or a script.
+
+| Exit | Line starts with | Meaning |
 |:--|:--|:--|
-| For people | `jobwarden status` | `jobwarden watch [--project NAME]` |
-| For programs, in any language | `jobwarden status --json` | `jobwarden watch --json` |
+| 0 | `JOB train DONE:` | finished properly |
+| 1 | `JOB train FAILED:` | see [how the outcome is decided](#how-the-outcome-is-decided) |
+| 3 | `JOB train UNREACHABLE:` | host silent for `--unreachable` minutes (default 10) |
+| 4 | `JOB train is on several hosts` | use `--host` |
+| 5 | `JOB train CLEARED:` / `NEVER APPEARED:` | record gone, or not found after `--appear` minutes (default 10) |
+| 6 | `JOB train CHECK:` / `CHECK BROKEN:` | your `--check` spoke up, or doesn't work |
+| 7 | `JOB train STOPPED:` | someone ran `jobwarden stop` |
+| 8 | `JOB train STALLED:` | no progress for `--stall` minutes (default 20) |
+| 2, 70 | no such line | bad usage or unknown host; jobwarden itself crashed |
+
+**Your own health check** catches what only your project can tell, such as a loss going to NaN, while there's still time to act:
+
+```sh
+jobwarden wait train --check-every 5 \
+    --check '! grep -q "loss nan" "$JOB_DIR/log" || { echo "loss is NaN"; exit 1; }'
+```
+
+It runs on the job's host, in the job's folder, with `$JOB_NAME` and `$JOB_DIR` set, and has 30 s. Exit 0 means all is well, and exit 1 wakes you with whatever it printed. Anything else counts as a broken check, which wakes you too. The job keeps running either way. Keep checks read-only: jobwarden doesn't enforce that.
+
+**Notifications:** `--notify` runs any command, so jobwarden doesn't depend on a particular terminal. It works on `wait` and `watch`; use one per job, or you'll get each alert twice.
+
+```sh
+jobwarden wait train --notify 'osascript -e "display notification \"$JOBWARDEN_BODY\" with title \"$JOBWARDEN_TITLE\""'
+jobwarden wait train --notify 'notify-send "$JOBWARDEN_TITLE" "$JOBWARDEN_BODY"'
+```
+
+The command gets `$JOBWARDEN_TITLE`, `$JOBWARDEN_BODY`, `$JOBWARDEN_EVENT`, `$JOBWARDEN_JOB` and `$JOBWARDEN_HOST`.
+
+**Staying awake:** nothing notices a job's end while no reader is running, and a sleeping laptop isn't running one. The job itself carries on if it's on another machine, and the record is waiting when you're back. On a Mac, `caffeinate -is jobwarden wait train` prevents idle sleep, though not a closed lid.
+
+## For AI agents
+
+The usual loop for a coding agent:
+
+1. Launch with `jobwarden run`, setting `--min-runtime` and `--expect` whenever you know what a healthy run looks like.
+2. Start `jobwarden wait <name>` as a background command, adding `--check` if a run can go wrong without failing.
+3. When it exits, read the line and the exit code. Use `jobwarden logs <name>` to diagnose.
+
+`examples/claude-code/job_launch.py` is a small Claude Code hook that reminds a session to do this after a launch.
+
+## Building your own dashboard
+
+| | One reading | Live |
+|:--|:--|:--|
+| For people | `jobwarden status` | `jobwarden watch --project NAME` |
+| For programs, any language | `jobwarden status --json` | `jobwarden watch --json` |
 | In Python | `jobwarden.jobs()` | `jobwarden.live()` |
 
-A dashboard pane or a tmux pane can simply run `jobwarden watch --project NAME`. For a custom one in Python, `jobwarden.live()` reads in the background
-and never makes you wait, so a dead host can't freeze the drawing; see `examples/project_dock.py`, which adds host stats from the separate
-`hoststats` package. JSON output carries `"version": 1`; `jobwarden watch --help` shows the shape of its lines. jobwarden uses `nvidia-smi` only to name cards and check one is free before starting a job; live
-numbers in a tab come from `--config`, see `examples/job_config.py`.
+Often you need no code at all: run `jobwarden watch --project NAME` in a tmux pane or a terminal sidebar.
 
-There is no daemon. If nothing is reading, nothing notices a job's end until something does; the record stays on the host.
+For a custom view in Python, `live()` reads in the background, so drawing never waits for a dead host:
 
-## Use
-```sh
-uv tool install .                 # or pipx install .
-jobwarden host add box1 --ssh user@10.0.0.2 --jump root@10.0.0.1
-jobwarden install box1               # copies jobrun, discovers GPUs into short names; `jobwarden run` warns if it gets out of date
+```python
+import time
+import jobwarden
 
-jobwarden run ft1 --host box1 --gpu 2080 --cwd ~/project --summary "what it is for" --project demo --min-runtime 600 --expect out/model.gguf -- \
-    'docker run --rm --name "$JOB_CONTAINER" --gpus "device=$JOB_GPU" img python train.py'
-jobwarden watch ft1 --once          # test: writes nothing
-jobwarden wait ft1           # background: wakes a session; needs no tab
-jobwarden wait ft1 --check 'python3 tools/check_training.py'   # also wakes it when your own check exits 1
-jobwarden watch ft1                 # optional tab
+live = jobwarden.live(project="demo", interval=10)
+while True:
+    print(live.down())                 # {host: why} for hosts not answering
+    for j in live.jobs():              # empty until the first hosts answer
+        print(j["name"], j["state"], j["step"], j["total"], j["eta_s"], j["metrics"])
+    time.sleep(2)
 ```
-Without `--host`, a job runs on this machine. `jobwarden watch` and `jobwarden wait` get the host from the job. `jobwarden --help`, `jobwarden run --help` and `jobwarden watch --help` have the details. Jobs print `HH:MM:SS step 120/513 loss 0.85 1.2s/step` and
-optionally `HH:MM:SS stage gguf`. Project-specific text and results go in a small `--config` file, not in copied plumbing.
 
-Pods: `jobwarden host add pod1 --ssh root@1.2.3.4 --port 22022 --temporary`. A job ending on a temporary host is reported
-with "may still be billing: stop it?". Nothing in jobwarden ever stops a pod.
+`jobwarden.jobs()` reads the hosts right now, and can wait about 40 s on a dead one. Import from where the package is installed; a `uv tool` install has its own environment, so a script may need `sys.path` set as in `examples/project_dock.py`.
 
-## Logs and stopping
-```sh
-jobwarden logs ft1 [-n 50] [-f]   # finds the host; -f follows until the job ends
-jobwarden stop ft1 [--grace 30]   # SIGTERM, then SIGKILL after the grace
+Every job has these fields: `name`, `host`, `project`, `state` (`running`, `queued`, `orphan`, `unreachable`, `unreadable`, `done`, `failed`, `stopped`), `note`, `summary`, `gpu`, `step`, `total`, `frac`, `stage`, `metrics`, `eta_s`, `updated`, `last_at`, `start_at`, `ended_at`, `unreachable_since`, `temporary`, `cleared`, `log` (last lines), and in Python `status` (the raw `status.json`).
+
+From another language, `jobwarden watch --json` prints one line per host at each read:
+
+```json
+{"version": 1, "host": "box1", "reachable": true, "error": null, "jobs": [{"name": "train", "state": "running", "step": 120, "total": 900}]}
 ```
-`jobwarden stop` stops that one job and nothing else on the host: its own process group, and its container. It records the state `stopped`,
-and a queued job just leaves the queue. So a stop can reach a container, `docker run` needs `--name "$JOB_CONTAINER"`, which `jobrun`
-requires of any docker command it can see; name it in the scripts a job runs too, as those can't be checked.
 
-## How a job's outcome is decided
-`jobrun` decides on the host, when the job's process ends, and records it in `status.json`. The first match wins:
+## How it works
+
+```
+your machine                             host
+────────────                             ────
+jobwarden run ───── ssh ───────────────► jobrun ──► supervisor ──► your job
+                                                        │              │
+jobwarden watch ──┐                                     ▼              ▼
+jobwarden wait  ──┼─ one shared ssh ───► reads   ~/jobs/<name>/status.json, log
+jobwarden.live() ─┘   connection
+```
+
+`jobrun` is one file, copied to `~/.local/bin` on the host. `jobwarden run` warns if the copy is out of date. Each job gets a small supervisor that starts it, follows its log and writes `status.json`. Every reader then reads that file directly: nothing about jobs is saved on your machine.
+
+All readers of a host share one SSH connection, every command has a hard timeout, and failed connections back off, so a dozen viewers don't look like an attack to a strict network. `docs/design-notes.md` explains the reasoning.
+
+### How the outcome is decided
+
+When the job's process ends, the supervisor records the first match:
 
 | What happened | State |
 |:--|:--|
-| Killed by a signal, or a non-zero exit code | failed |
-| Exit 0, but ran less than `--min-runtime` | failed |
-| Exit 0, but an `--expect` file is missing, empty or older than the job's start | failed |
-| Otherwise | done |
+| Ended by `jobwarden stop` | `stopped` |
+| Killed by a signal, or a non-zero exit code | `failed` |
+| Exit 0, but ran less than `--min-runtime` | `failed` |
+| Exit 0, but an `--expect` file is missing, empty or older than the start | `failed` |
+| Otherwise | `done` |
 
-Without `--min-runtime` and `--expect`, success just means exit 0. If the supervisor's heartbeat is over 60 s old, readers report
-`orphan` if the job's process is still alive, and `failed` with an unknown exit code if it's gone (a reboot looks like this).
+If the supervisor's heartbeat goes quiet for 60 s, readers report `orphan` when the job's process is still alive, and `failed` with an unknown exit code when it's gone. A reboot looks like this too, even if the job had in fact finished.
 
-## What wakes `jobwarden wait`
-It prints one line starting `JOB <name> <EVENT>:` and exits:
+## What it doesn't catch
 
-| Exit code | Event |
-|:--|:--|
-| 0 | `DONE` |
-| 1 | `FAILED` |
-| 3 | `UNREACHABLE`: host not answering for `--unreachable` minutes (default 10) |
-| 4 | same name on several hosts: use `--host` |
-| 5 | `CLEARED`, or `NEVER APPEARED` after `--appear` minutes (default 10) |
-| 6 | `CHECK`: your `--check` exited 1. `CHECK BROKEN`: it exited with anything else, or stopped answering |
-| 7 | `STOPPED`: someone ran `jobwarden stop` |
-| 8 | `STALLED`: no progress line for `--stall` minutes (default 20) |
-| 2, 70 | bad usage or unknown host; jobwarden itself crashed. Not a job's outcome |
+- **Wrong results with exit 0.** `--expect` only checks that a file exists, isn't empty and is new, and `--check` stops when the job does.
+- **Healthy but silent jobs.** With no output for `--stall` minutes, `wait` reports `STALLED` and says no progress line was ever seen. Give such jobs a larger `--stall`.
+- **Jobs started without jobwarden.** They hold no reservation, and only count as busy once `nvidia-smi` shows them.
+- **Processes that escape.** `stop` can't reach a process that moved itself to its own session, or a container started by a script without `--name "$JOB_CONTAINER"`.
+- **Containers killed from outside.** If the `docker run` client dies while its container carries on, the client's exit code is what gets recorded.
 
-`--check '<command>'` is for what only your project can tell, such as a loss going to NaN. Every `--check-every` minutes (default 5)
-while the job runs, it runs on the job's host, in the job's folder, with `$JOB_NAME` and `$JOB_DIR` set, and has 30 s:
+## Development
+
 ```sh
-jobwarden wait ft1 --check '! grep -q "loss nan" "$JOB_DIR/log" || { echo "loss is NaN"; exit 1; }'
+python3 -m unittest discover -s tests -t .
 ```
-It only wakes you: the job carries on. Keep it read-only, since jobwarden doesn't enforce that.
 
-## What it does not catch
-- Wrong results with exit 0: `--expect` only checks that a file exists, isn't empty and is new, and `--check` stops when the job does.
-- A healthy job printing nothing: the stall timer falls back to the last log write, so give it a larger `--stall`.
-- Jobs started without `jobrun`: they aren't reserved, only seen through nvidia-smi once they hold memory.
-- `docker run` killed from outside while its container keeps running: the client's exit code is what is recorded.
-- A process a job moved to its own session or group, or a container started by a script without `--name "$JOB_CONTAINER"`: `jobwarden stop` can't reach it.
-- A job that survives its supervisor (`orphan` in the tab) has no recorded exit code.
-- A laptop going to sleep: a remote job continues, watching pauses, and `jobwarden watch` says so afterwards. `caffeinate -is jobwarden wait ft1` keeps a Mac awake while it waits, short of a closed lid or an empty battery.
+The tests take about 2 minutes and use no network, real GPU or billable service: SSH is a stub or a throwaway `sshd` on localhost, and `HOME` is a temp folder.
 
-## When a job leaves `jobwarden.jobs()`
-Finished: 60 min ($JOBWARDEN_KEEP_MIN) after it ended. Host not answering: a running process keeps showing its last read,
-marked unreachable, and hides it after 60 min. `jobwarden clear <name>` hides a job until its name runs again. Hiding only
-affects views: `jobwarden wait` and `jobwarden status --all` still see them. `~/jobs` is never cleaned up by jobwarden.
+`examples/project_dock.py` and `examples/job_config.py` also use `hoststats`, a separate package for CPU and GPU numbers that isn't published yet.
 
-## Settings
-`$JOBWARDEN_KEEP_MIN` (above), `$JOBWARDEN_HOSTS` (a hosts file instead of the project's). `--stall` and `--unreachable` belong to `jobwarden wait`, and its
-notifications use the same numbers. The tests also shorten `$JOBWARDEN_SSH_TIMEOUT`, `$JOBWARDEN_BACKOFF`, `$JOBWARDEN_STALE`,
-`$JOBWARDEN_HEARTBEAT` and `$JOBWARDEN_GPU_POLL`, and move `$JOBWARDEN_SSH_DIR`.
-
-## Tests
-`python3 -m unittest discover -s tests -t .` (about 2 min). No network, no real GPU, nothing billable: SSH is a stub or a
-throwaway sshd on 127.0.0.1 (custom port, no docker, temporary: a stand-in for a pod), and HOME is a temp dir.
-
-Why it works this way: `docs/design-notes.md`.
+No licence has been chosen yet.
