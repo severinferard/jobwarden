@@ -33,7 +33,7 @@ It suits a laptop with a few SSH boxes, or rented pods. It isn't a cluster sched
 ## Install
 
 ```sh
-uv tool install git+https://github.com/severinferard/jobwarden   # or: pipx install git+https://...
+uv tool install jobwarden                # or: pipx install jobwarden, or pip install jobwarden
 jobwarden demo                                                   # a fake training run: no GPU or SSH needed
 ```
 
