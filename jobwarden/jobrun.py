@@ -685,7 +685,7 @@ def daemonize(job, lock, queue):
             st = json.load(f)
         gpu = f" on GPU {st['gpu']['name']} ({st['gpu']['uuid']})" if st.get("gpu") else ""
         reason = f" ({st['reason']})" if st.get("reason") else ""
-        print(f"{job.args.name}: {st['state']}{gpu}, supervisor pid {st['pid']}, log {job.log}{reason}")
+        print(f"{job.args.name}: {st['state']}{gpu}, supervisor pid {st['pid']}, log {job.log.replace(os.path.expanduser("~"), "~", 1)}{reason}")
         sys.exit(1 if st["state"] == "failed" else 0)
     os.close(r)
     os.setsid()
