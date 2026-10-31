@@ -164,6 +164,8 @@ jobwarden wait train --notify 'notify-send "$JOBWARDEN_TITLE" "$JOBWARDEN_BODY"'
 
 The command gets `$JOBWARDEN_TITLE`, `$JOBWARDEN_BODY`, `$JOBWARDEN_EVENT`, `$JOBWARDEN_JOB` and `$JOBWARDEN_HOST`.
 
+For cmux, see [Using it in cmux](#using-it-in-cmux).
+
 **Staying awake:** nothing notices a job's end while no reader is running, and a sleeping laptop isn't running one. The job itself carries on if it's on another machine, and the record is waiting when you're back. On a Mac, `caffeinate -is jobwarden wait train` prevents idle sleep, though not a closed lid.
 
 ## Building your own dashboard
@@ -174,7 +176,7 @@ The command gets `$JOBWARDEN_TITLE`, `$JOBWARDEN_BODY`, `$JOBWARDEN_EVENT`, `$JO
 | For programs, any language | `jobwarden status --json` | `jobwarden watch --json` |
 | In Python | `jobwarden.jobs()` | `jobwarden.live()` |
 
-Often you need no code at all: run `jobwarden watch --project NAME` in a tmux pane or a terminal sidebar.
+Often you need no code at all: run `jobwarden watch --project NAME` in a tmux pane or a terminal sidebar, such as [the cmux Dock](#using-it-in-cmux).
 
 For a custom view in Python, `live()` reads in the background, so drawing never waits for a dead host:
 
@@ -199,6 +201,33 @@ From another language, `jobwarden watch --json` prints one line per host at each
 ```json
 {"version": 1, "host": "box1", "reachable": true, "error": null, "jobs": [{"name": "train", "state": "running", "step": 120, "total": 900}]}
 ```
+
+## Using it in cmux
+
+jobwarden works in any terminal, and needs nothing from [cmux](https://cmux.com). If you do use cmux, two of its features fit well: the Dock, its right sidebar of terminals, and its notifications.
+
+**A Dock with no code:** add a control to the project's `.cmux/dock.json`. Keep the `cwd`, because that's how jobwarden finds the project's `.jobwarden/hosts.json`.
+
+```json
+{
+  "controls": [
+    { "id": "jobs", "title": "Jobs", "command": "jobwarden watch --project demo", "cwd": "." }
+  ]
+}
+```
+
+**A custom Dock:** for your own layout, or to show the hosts' GPUs next to the jobs, write a small script around [`jobwarden.live()`](#building-your-own-dashboard), keep it in the project, and make it the control's `command`. Since `live()` reads in the background, the script only has to redraw.
+
+**Notifications:**
+
+```sh
+jobwarden wait train --notify 'cmux notify --title "$JOBWARDEN_TITLE" --body "$JOBWARDEN_BODY"'
+```
+
+Two limits come from how the Dock works:
+
+- **`dock.json` only seeds a Dock with no saved state.** A Dock that's already open won't pick up the control, so add it by hand: `cmux new-pane --placement dock --command "jobwarden watch --project demo"`.
+- **A window's Dock is shared by its workspaces.** A project's Dock stays on screen when you switch to another project's workspace in that window.
 
 ## How it works
 
