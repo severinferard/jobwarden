@@ -52,7 +52,7 @@ EXIT_NAME, EXIT_GPU = 4, 5
 CLOCK = r"^\s*\[?(\d\d:\d\d:\d\d)\]?\s+"
 PROGRESS = re.compile(CLOCK + r"([A-Za-z_][\w-]*)\s+(\d+)\s*/\s*(\d+)\b(.*)$")
 STAGE = re.compile(CLOCK + r"stage[ :=]+(.+?)\s*$")
-METRIC = re.compile(r"([A-Za-z_][\w.]*)[ =:]+(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?%?)(?![\w/])")
+METRIC = re.compile(r"([A-Za-z_][\w.]*)[ =:]+(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?%?|-?nan|-?inf)(?![\w/.])", re.I)
 SPEED = re.compile(r"(\d+(?:\.\d+)?)\s*s/[A-Za-z]+")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 DOCKER_RUN = re.compile(r"\bdocker\s+(?:container\s+)?run\b[^|;&]*")

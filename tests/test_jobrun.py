@@ -82,6 +82,7 @@ class Progress(Base):
         self.assertEqual(p["metrics"], {"loss": "0.85", "lr": "1e-4", "val_loss": "0.9"})
         self.assertEqual(p["s_per_step"], 1.2)
         self.assertEqual(jr.parse_progress("12:01:02 turn 4/9")["unit"], "turn")
+        self.assertEqual(jr.parse_progress("12:01:02 step 4/9 loss nan 0.3s/step")["metrics"], {"loss": "nan"})
         self.assertEqual(jr.parse_progress("\x1b[32m12:01:02 step 4/9\x1b[0m")["step"], 4)
         self.assertEqual(jr.parse_progress("12:01:02 stage gguf")["stage"], "gguf")
         self.assertIsNone(jr.parse_progress("Loading 3/4 shards"))

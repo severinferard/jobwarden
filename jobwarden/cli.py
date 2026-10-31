@@ -16,7 +16,7 @@ import sys
 import time
 import traceback
 
-from . import wait, watch
+from . import demo, wait, watch
 from .core import (
     LOCAL,
     Transport,
@@ -263,6 +263,8 @@ def parser():
         )
         mod.add_arguments(s, job_name)
         s.set_defaults(func=mod.run)
+    s = sub.add_parser("demo", help="try it: a fake training run on this machine, with no GPU or SSH")
+    s.set_defaults(func=demo.run)
     s = sub.add_parser("status", help="the jobs of all hosts, once")
     s.add_argument("--project", help="only this project's jobs")
     s.add_argument("--all", action="store_true", help="include those hidden from views")

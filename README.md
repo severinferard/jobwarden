@@ -2,6 +2,8 @@
 
 **Watch long-running jobs live, on this machine or over SSH, and let your AI agent get woken when they need attention.**
 
+![A fake training run in jobwarden's live view: the health check spots a NaN loss and wakes the agent](docs/demo.gif)
+
 Start a job, see its progress as it runs, and walk away. It's built for AI coding agents like Claude Code, which shouldn't burn a session polling a training run or write a new watcher script each time: the agent waits on one command, which exits with a clear result as soon as the job finishes, fails, stalls, or fails your own health check. You follow along in the same live view.
 
 ```sh
@@ -25,6 +27,7 @@ It suits a laptop with a few SSH boxes, or rented pods. It isn't a cluster sched
 
 ```sh
 uv tool install git+https://github.com/severinferard/jobwarden   # or: pipx install git+https://...
+jobwarden demo                                                   # a fake training run: no GPU or SSH needed
 ```
 
 Without any setup, jobs run on your own machine:
