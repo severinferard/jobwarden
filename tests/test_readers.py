@@ -319,7 +319,7 @@ class Waiter(Base):
         self.jobrun("cl", "--", "sleep 20")
         wa = self.waiter("cl")
         time.sleep(0.5)
-        shutil.rmtree(os.path.join(self.home, ".jobwarden/jobs/cl"))
+        os.rename(os.path.join(self.home, ".jobwarden/jobs/cl"), os.path.join(self.tmp, "gone"))  # atomic: its supervisor is still writing
         out, _ = wa.communicate(timeout=20)
         self.assertEqual(wa.returncode, 5, out)
 
