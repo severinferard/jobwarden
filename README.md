@@ -14,7 +14,7 @@
 Start a job, see its progress as it runs, and walk away. It's built for AI coding agents like Claude Code, which shouldn't burn a session polling a training run or write a new watcher script each time: the agent waits on one command, which exits with a clear result as soon as the job finishes, fails, stalls, or fails your own health check. You follow along in the same live view.
 
 ```sh
-jobwarden run train --host box1 --gpu 2080 -- 'python train.py'   # leave out --host to run on this machine
+jobwarden run train --host box1 --gpu 2080 -- 'python3 train.py'   # leave out --host to run on this machine
 jobwarden watch train                                             # live progress: bar, ETA, metrics
 jobwarden wait train --check 'python3 tools/check_training.py'    # blocks, then exits with what happened
 ```
@@ -25,33 +25,43 @@ jobwarden wait train --check 'python3 tools/check_training.py'    # blocks, then
 - **Jobs survive you.** A job on a remote host keeps running if your laptop sleeps or SSH drops.
 - **No daemon, no server, no database.** The only record is a JSON file next to the job, so any viewer can come and go.
 - **"Exit 0" isn't taken on trust.** A job that ran too briefly or didn't write its output counts as failed.
-- **Safe on shared GPUs.** A busy card is refused, and a reservation stops two jobs picking the same one.
+- **Careful on shared GPUs.** Ask for a card and a busy one is refused. A reservation stops two jobs, from any user, picking the same one.
 - **No dependencies.** It's standard-library Python 3.10+, on your machine and on the hosts.
 
 It suits a laptop with a few SSH boxes, or rented pods. It isn't a cluster scheduler. It's been used from macOS with Linux hosts; other setups, and real rented pods, are untested.
 
-## Install
+## Get started
+
+You need Python 3.10+ and one of `uv`, `pipx` or `pip`. On a fresh Debian or Ubuntu machine, `sudo apt install pipx && pipx ensurepath` is the quickest route.
 
 ```sh
-uv tool install jobwarden                # or: pipx install jobwarden, or pip install jobwarden
-jobwarden demo                                                   # a fake training run: no GPU or SSH needed
+uv tool install jobwarden        # or: pipx install jobwarden
+jobwarden demo                   # a fake training run: no GPU or SSH needed
 ```
 
-Without any setup, jobs run on your own machine:
+**On your own machine,** that's all the setup there is:
 
 ```sh
-jobwarden run hello -- 'sleep 30; echo done'
-jobwarden wait hello
+jobwarden run hello -- 'for i in 1 2 3 4 5 6; do echo "step $i/6"; sleep 5; done'
+jobwarden watch hello            # Ctrl-C to quit; closing it doesn't touch the job
+jobwarden wait hello             # blocks until it ends, checking every 15 s
 ```
 
-To use a remote host, run these inside your project. Hosts are saved per project, in `.jobwarden/hosts.json`:
+**On another machine over SSH,** run these inside your project, because hosts are saved per project in `.jobwarden/hosts.json`:
 
 ```sh
+ssh-keygen -t ed25519            # if you have no key yet
+ssh-copy-id user@10.0.0.2        # then `ssh user@10.0.0.2` must work once, with no password prompt
+
 jobwarden host add box1 --ssh user@10.0.0.2          # optional: --jump user@gateway --port 2222
-jobwarden install box1                               # copies jobrun to the host and names its GPUs
+jobwarden install box1                               # copies one file to the host, which needs python3 3.10+
 ```
 
-jobwarden finds the nearest `.jobwarden/hosts.json` from the current folder upwards. Outside a project it only knows your own machine, and says so. `ssh` to the host must already work without a password prompt, and the host needs `python3` 3.10+.
+jobwarden doesn't copy your code: it must already be on the host, in the folder you give with `--cwd`.
+
+jobwarden finds the nearest `.jobwarden/hosts.json` from the current folder upwards. Outside a project it only knows your own machine, and says so.
+
+To uninstall: `uv tool uninstall jobwarden` (or `pipx uninstall`). It leaves your job records in `~/.jobwarden/` and its SSH sockets in `~/.cache/jobwarden/`, and `~/.local/bin/jobrun` on each host. Delete those by hand if you don't want them.
 
 ## For AI agents
 
@@ -74,13 +84,13 @@ In Claude Code, a background command's exit wakes the session, so the agent need
 jobwarden run train --host box1 --gpu 2080 --wait-gpu \
     --cwd ~/project --project demo --summary "Fine-tune v3 on the new dataset" \
     --min-runtime 600 --expect out/model.gguf \
-    -- 'python train.py'
+    -- 'python3 train.py'
 ```
 
 | Option | What it does |
 |:--|:--|
 | `--host` | where to run (default: this machine) |
-| `--gpu` | a card's short name, `any` or a UUID. With no `--gpu`, the job sees no GPU |
+| `--gpu` | reserve a card: its short name, `any` or a UUID. Without it, the job sees every card and reserves none |
 | `--wait-gpu` | queue for a busy card instead of being refused |
 | `--force` | use a busy card anyway |
 | `--min-runtime SECONDS` | exit 0 sooner than this counts as failed |
@@ -89,11 +99,12 @@ jobwarden run train --host box1 --gpu 2080 --wait-gpu \
 
 **Quote the command as one argument**, so that variables expand on the host.
 
-**Progress:** print lines like these and you get a bar, an ETA, metrics and stall detection. The word `step` can be anything.
+**Progress:** print lines like these and you get a bar, an ETA, metrics and stall detection. The word `step` can be anything, a leading clock is fine, and tqdm's bars work too. Until it sees one, `jobwarden watch` shows the log and says there's no bar yet.
 
 ```
-12:30:01 step 120/900 loss 0.85 1.2s/step
-12:30:01 stage export
+step 120/900 loss 0.85 1.2s/step
+Epoch 3/10 loss=0.42
+stage export
 ```
 
 **Docker:** use both variables, and no `-d`. jobwarden already detaches the job, and it refuses a `docker run` it can see breaking these rules. Put them in any script your job runs too, since it can't check inside those.
@@ -132,7 +143,7 @@ head -20 ~/.jobwarden/jobs/train/log                      # a job on this machin
 
 Viewers are read-only, so closing one interrupts nothing. Finished jobs leave views after 60 minutes (`$JOBWARDEN_KEEP_MIN`), and nothing in `~/.jobwarden/jobs` is ever deleted.
 
-`stop` only reaches that job's process group and its container, and records the state `stopped`. It never stops a pod: a job ending on a host added with `--temporary` is reported as "may still be billing".
+`stop` gives the job `SIGTERM` so it can save its work. It only reaches that job's process group and its container, and records the state `stopped`. It never stops a pod: a job ending on a host added with `--temporary` is reported as "may still be billing".
 
 To show something specific to a job in `watch`, such as a results table or live GPU numbers, pass `--config job.py`. See `jobwarden watch --help` and `examples/job_config.py`.
 
@@ -150,6 +161,7 @@ To show something specific to a job in `watch`, such as a results table or live 
 | 6 | `JOB train CHECK:` / `CHECK BROKEN:` | your `--check` spoke up, or doesn't work |
 | 7 | `JOB train STOPPED:` | someone ran `jobwarden stop` |
 | 8 | `JOB train STALLED:` | no progress for `--stall` minutes (default 20) |
+| 9 | `JOB train ORPHAN:` | its supervisor died but the job is running: run `jobwarden adopt` |
 | 2, 70 | no such line | bad usage or unknown host; jobwarden itself crashed |
 
 **Your own health check** catches what only your project can tell, such as a loss going to NaN, while there's still time to act:
@@ -159,7 +171,7 @@ jobwarden wait train --check-every 5 \
     --check '! grep -q "loss nan" "$JOB_DIR/log" || { echo "loss is NaN"; exit 1; }'
 ```
 
-It runs on the job's host, in the job's folder, with `$JOB_NAME` and `$JOB_DIR` set, and has 30 s. Exit 0 means all is well, and exit 1 wakes you with whatever it printed. Anything else counts as a broken check, which wakes you too. The job keeps running either way. Keep checks read-only: jobwarden doesn't enforce that.
+`--check-every` is in minutes. The check runs on the job's host, in its `--cwd`, with `$JOB_NAME` and `$JOB_DIR` set, and has 30 s. It also runs once when the job exits normally, so a short job isn't missed. Exit 0 means all is well, and exit 1 wakes you with whatever it printed. Anything else counts as a broken check, which wakes you too. If the job is still running, it keeps going, and you start `jobwarden wait` again to keep watching. Keep checks read-only: jobwarden doesn't enforce that.
 
 **Notifications:** `--notify` runs any command, so jobwarden doesn't depend on a particular terminal. It works on `wait` and `watch`; use one per job, or you'll get each alert twice.
 
@@ -198,7 +210,7 @@ while True:
     time.sleep(2)
 ```
 
-`jobwarden.jobs()` reads the hosts right now, and can wait about 40 s on a dead one. Import from where the package is installed; a `uv tool` install has its own environment, so a script may need `sys.path` set as in `examples/project_dock.py`.
+`jobwarden.jobs()` reads the hosts right now, and can wait about 40 s on a dead one. `uv tool install` keeps jobwarden in its own environment, so your script needs it as well: `uv run --no-project --with jobwarden python dash.py`, or `pip install jobwarden` in the script's own virtual environment.
 
 Every job has these fields: `name`, `host`, `dir`, `project`, `state` (`running`, `queued`, `orphan`, `unreachable`, `unreadable`, `done`, `failed`, `stopped`), `note`, `summary`, `gpu`, `step`, `total`, `frac`, `stage`, `metrics`, `eta_s`, `updated`, `last_at`, `start_at`, `ended_at`, `unreachable_since`, `temporary`, `cleared`, `log` (last lines), and in Python `status` (the raw `status.json`).
 
@@ -273,7 +285,7 @@ If the supervisor's heartbeat goes quiet for 60 s, readers report `orphan` when 
 
 - **Wrong results with exit 0.** `--expect` only checks that a file exists, isn't empty and is new, and `--check` stops when the job does.
 - **Healthy but silent jobs.** With no output for `--stall` minutes, `wait` reports `STALLED` and says no progress line was ever seen. Give such jobs a larger `--stall`.
-- **Jobs started without jobwarden.** They hold no reservation, and only count as busy once `nvidia-smi` shows them.
+- **Jobs started without jobwarden or `--gpu`.** They hold no reservation, and only count as busy once `nvidia-smi` shows them.
 - **Processes that escape.** `stop` can't reach a process that moved itself to its own session, or a container started by a script without `--name "$JOB_CONTAINER"`.
 - **Containers killed from outside.** If the `docker run` client dies while its container carries on, the client's exit code is what gets recorded.
 

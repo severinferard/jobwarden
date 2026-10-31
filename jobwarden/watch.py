@@ -29,6 +29,7 @@ Exit code: 0 ok, 1 no such job, 3 host unreachable (--once), 2 bad usage.
 import importlib.util
 import json
 import os
+import re
 import shutil
 import signal
 import sys
@@ -53,6 +54,13 @@ ICONS = {
 }
 RESET, DIM, BOLD, RED, GREEN, YELLOW = "\033[0m", "\033[2m", "\033[1m", "\033[31m", "\033[32m", "\033[33m"
 COLORS = {"done": GREEN, "failed": RED, "orphan": YELLOW, "unreachable": YELLOW}
+
+
+def plain(text):
+    """Colours only where they can be seen: not in a pipe, nor with NO_COLOR set."""
+    if not sys.stdout.isatty():
+        return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+    return re.sub(r"\x1b\[[0-9;]*m", "", text) if os.environ.get("NO_COLOR") else text
 
 
 def closed(*_):
@@ -176,6 +184,10 @@ class Watch:
         )
         lines += ["  " + clean(x) for x in self.config.call("results", d, []) or []]
         lines += [f"  {YELLOW}hook {clean(e)}{RESET}" for e in d.get("hook_errors", [])]
+        if state == "running" and not (st.get("progress") or st.get("stage")):
+            lines.append(
+                f"  {DIM}No progress line seen yet, so there's no bar. Print lines like: step 1/9 loss 0.8{RESET}"
+            )
         if state == "failed" or not (st.get("progress") or st.get("stage")):
             lines += [f"  {DIM}log: {x}{RESET}" for x in log[-(len(log) if state == "failed" else 3) :]]
         return lines
@@ -213,7 +225,7 @@ class Watch:
 
     def once(self):
         jobs = self.read()
-        print(self.frame(jobs)[0])
+        print(plain(self.frame(jobs)[0]))
         missing = [n for n, d in jobs.items() if d is None]
         if missing:
             print(f"no job {missing[0]} on {self.labels[missing[0]]}", file=sys.stderr)
@@ -230,12 +242,8 @@ class Watch:
                     notifier.check(job)
                 text, finished = self.frame(jobs)
                 text = "\n".join([text] + self.sleep_note())
-                print(
-                    "\033[2J\033[H"
-                    + text
-                    + (f"\n\nrefresh every {self.args.interval:g} s · Ctrl-C to quit" if not finished else ""),
-                    flush=True,
-                )
+                footer = f"\n\nrefresh every {self.args.interval:g} s · Ctrl-C to quit" if not finished else ""
+                print(plain("\033[2J\033[H" + text + footer), flush=True)
                 if finished:
                     if sys.stdin.isatty() and sys.stdout.isatty():  # keep the result readable in the tab
                         print("\nNo longer polling. Ctrl-C or close the tab.", flush=True)
@@ -297,7 +305,7 @@ def run_overview(args):
     if args.once:
         reader = Reader()
         jobs = reader.jobs(args.project, host=args.host)
-        print(overview(jobs, reader.down(), args.project))
+        print(plain(overview(jobs, reader.down(), args.project)))
         return 3 if reader.down() else 0
     quit_on_close()
     notifier = Notifier(args.notify)
@@ -313,7 +321,9 @@ def run_overview(args):
             frame = overview(jobs, live.down(), args.project)
             if frame != last:  # in place, so it doesn't flash
                 last = frame
-                sys.stdout.write("\033[H" + frame.replace("\n", "\033[K\n") + "\033[K\033[J" if tty else frame + "\n\n")
+                sys.stdout.write(
+                    "\033[H" + plain(frame).replace("\n", "\033[K\n") + "\033[K\033[J" if tty else plain(frame) + "\n\n"
+                )
                 sys.stdout.flush()
             time.sleep(min(args.interval, 2))
     except KeyboardInterrupt:
@@ -337,6 +347,14 @@ def json_line(label, jobs, reader):
 
 
 def run_stream(args):
+    if args.names and not args.host:
+        reader = Reader()
+        try:
+            for name in args.names:
+                reader.host_of(name)
+        except LookupError as e:
+            print(e, file=sys.stderr)
+            return 1
     wanted, include_hidden = set(args.names), bool(args.names)
     quit_on_close()
     notifier, lock, ended, finished = Notifier(args.notify), threading.Lock(), set(), threading.Event()

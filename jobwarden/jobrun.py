@@ -11,14 +11,15 @@ One argument after `--` is a shell string; several are run as they are, without 
 disconnects. It writes to ~/.jobwarden/jobs/<name>/log; ~/.jobwarden/jobs/<name>/status.json holds start, pids, heartbeat, GPU, the last
 progress line and, at the end, the exit code. A previous run of the same name moves to ~/.jobwarden/jobs/<name>/prev/<time>/.
 
-Progress lines, parsed here and nowhere else (the word is free: step, turn, scene...):
-    HH:MM:SS step 120/513 loss 0.85 1.2s/step
-    HH:MM:SS stage gguf              names the current stage, counts as progress
+Progress lines, parsed here and nowhere else (the word is free: step, epoch, scene...; a leading clock is optional):
+    step 120/513 loss 0.85 1.2s/step
+    stage gguf                       names the current stage, counts as progress
+tqdm's bars are understood too.
 
---gpu pins the job to one card by UUID: plain processes get CUDA_VISIBLE_DEVICES, docker commands must use $JOB_GPU
+--gpu reserves one card and pins the job to it by UUID: plain processes get CUDA_VISIBLE_DEVICES, docker commands must use $JOB_GPU
 themselves (`docker run --gpus "device=$JOB_GPU"`, quote the whole command so it reaches jobrun unexpanded); the command
-is never rewritten. A busy card is refused (--wait-gpu queues, --force overrides). The card stays reserved by a lock
-while the job lives, so two jobruns can't pick the same card before either has loaded its model. No --gpu = no GPU.
+is never rewritten. A busy card is refused (--wait-gpu queues, --force overrides). The card stays reserved by a lock in /tmp
+while the job lives, for every user of the machine, so two jobruns can't pick the same card before either has loaded its model. Without --gpu, the job sees the cards as usual and reserves none.
 
 A docker command must name its container `--name "$JOB_CONTAINER"`, or a stop couldn't reach it: killing the docker client leaves
 the container running. A docker command started by a script the job runs can't be checked, so name it there too.
@@ -30,6 +31,7 @@ itself: 0 started, queued or stopped, 1 no such job or not stoppable, 2 bad usag
 
 import argparse
 import fcntl
+import getpass
 import json
 import os
 import re
@@ -44,14 +46,17 @@ import time
 
 JOBS = os.path.expanduser("~/.jobwarden/jobs")
 GPU_FILE = os.path.expanduser("~/.jobwarden/gpus.json")
+GPU_LOCKS = os.environ.get("JOBWARDEN_GPU_LOCKS", "/tmp/jobwarden-gpu")
 FREE_MIB = 500  # a card using more than this counts as busy
 GPU_POLL_S = float(os.environ.get("JOBWARDEN_GPU_POLL", 15))
 HEARTBEAT_S = float(os.environ.get("JOBWARDEN_HEARTBEAT", 5))
 TAIL_MAX = 1 << 20
 EXIT_NAME, EXIT_GPU = 4, 5
 
-CLOCK = r"^\s*\[?(\d\d:\d\d:\d\d)\]?\s+"
-PROGRESS = re.compile(CLOCK + r"([A-Za-z_][\w-]*)\s+(\d+)\s*/\s*(\d+)\b(.*)$")
+CLOCK = r"^\s*(?:\[?(\d\d:\d\d:\d\d)\]?\s+)?"  # optional: a line's own clock is never trusted anyway
+PROGRESS = re.compile(CLOCK + r"([A-Za-z_][\w-]*)\s+(\d+)\s*(?:/|\s+of\s+)\s*(\d+)\b(?![/\d])(.*)$")
+TQDM = re.compile(r"\d+%\|[^|]*\|\s*(\d+)/(\d+)\s*(?:\[(.*)\])?")
+TQDM_RATE = re.compile(r"(\d+(?:\.\d+)?)\s*it/s")
 STAGE = re.compile(CLOCK + r"stage[ :=]+(.+?)\s*$")
 METRIC = re.compile(r"([A-Za-z_][\w.]*)[ =:]+(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?%?|-?nan|-?inf)(?![\w/.])", re.I)
 SPEED = re.compile(r"(\d+(?:\.\d+)?)\s*s/[A-Za-z]+")
@@ -67,8 +72,22 @@ def parse_progress(line):
     m = STAGE.match(line)
     if m:
         return {"clock": m[1], "stage": m[2]}
+    m = TQDM.search(line)
+    if m and int(m[2]):
+        rest, rate = m[3] or "", TQDM_RATE.search(m[3] or "")
+        speed = SPEED.search(rest)
+        s_per_step = 1 / float(rate[1]) if rate and float(rate[1]) else float(speed[1]) if speed else None
+        metrics = dict(METRIC.findall(rest))
+        return {
+            "clock": None,
+            "unit": "it",
+            "step": int(m[1]),
+            "total": int(m[2]),
+            "metrics": metrics,
+            "s_per_step": s_per_step,
+        }
     m = PROGRESS.match(line)
-    if not m:
+    if not m or not int(m[4]):
         return None
     speed = SPEED.search(m[5])
     return {
@@ -100,11 +119,17 @@ def run_bounded(argv, timeout):
         return rc, out.read().decode(errors="replace"), err.read().decode(errors="replace")
 
 
+def gpu_error(err):
+    if "No such file" in err:
+        return "this machine has no nvidia-smi: if the GPU is on another machine, pass --host"
+    return f"nvidia-smi failed: {err.strip() or 'timeout'}"
+
+
 def query_gpus():
     """Cards as nvidia-smi sees them; raises RuntimeError if it can't say."""
     rc, out, err = run_bounded(["nvidia-smi", "--query-gpu=uuid,name,memory.used", "--format=csv,noheader,nounits"], 20)
     if rc != 0:
-        raise RuntimeError(f"nvidia-smi failed: {err.strip() or 'timeout or not installed'}")
+        raise RuntimeError(gpu_error(err))
     gpus = []
     for line in out.strip().splitlines():
         uuid, name, used = [x.strip() for x in line.split(",")[:3]]
@@ -118,7 +143,7 @@ def query_procs():
         20,
     )
     if rc != 0:
-        raise RuntimeError(f"nvidia-smi failed: {err.strip() or 'timeout or not installed'}")
+        raise RuntimeError(gpu_error(err))
     procs = []
     for line in out.strip().splitlines():
         parts = [x.strip() for x in line.split(",")]
@@ -171,15 +196,24 @@ def resolve_gpu(wanted):
     raise RuntimeError(f"unknown GPU {wanted!r}, this host has: {', '.join(names) or 'none'}")
 
 
-def lock_path(uuid):
-    d = os.path.join(JOBS, ".gpu")
-    os.makedirs(d, exist_ok=True)
-    return os.path.join(d, uuid + ".lock")
+def open_gpu_lock(uuid):
+    """Reservations are shared by every user of the machine, so the folder and its files are open to all."""
+    os.makedirs(GPU_LOCKS, exist_ok=True)
+    try:
+        os.chmod(GPU_LOCKS, 0o1777)
+    except OSError:
+        pass  # another user's folder, already set up
+    fd = os.open(os.path.join(GPU_LOCKS, uuid + ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o666)
+    try:
+        os.fchmod(fd, 0o666)
+    except OSError:
+        pass
+    return fd
 
 
 def try_gpu(uuid):
     """(lock fd, None) if the card is ours now, else (None, why it is busy). The fd holds the reservation."""
-    fd = os.open(lock_path(uuid), os.O_RDWR | os.O_CREAT, 0o644)
+    fd = open_gpu_lock(uuid)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -205,7 +239,7 @@ def try_gpu(uuid):
 def claim_gpu(fd, job):
     os.ftruncate(fd, 0)
     os.lseek(fd, 0, 0)
-    os.write(fd, job.encode())
+    os.write(fd, f"{job} of user {getpass.getuser()}".encode())
 
 
 def write_json(path, data):
@@ -407,7 +441,8 @@ class Job:
         env = dict(os.environ, JOB_NAME=self.args.name, JOB_DIR=self.dir, PYTHONUNBUFFERED="1")
         env["JOB_GPU"] = self.gpu or ""
         env["JOB_CONTAINER"] = f"job-{self.args.name}"
-        env["CUDA_VISIBLE_DEVICES"] = self.gpu or ""  # no --gpu = no GPU
+        if self.gpu:  # without --gpu, the job sees the machine's cards as usual, but none is reserved
+            env["CUDA_VISIBLE_DEVICES"] = self.gpu
         return env
 
     def spawn(self):
@@ -423,6 +458,9 @@ class Job:
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,
+                pass_fds=(self.gpu_fd,)
+                if self.gpu_fd is not None
+                else (),  # keeps the card reserved if this supervisor dies
             )
 
     def verdict(self, rc, runtime):
@@ -446,8 +484,8 @@ class Job:
         return "done", f"exit 0 after {fmt_s(runtime)}"
 
     def verdict_when_adopted(self, _rc, runtime):
-        """Without an exit code, only --expect can say a job went well."""
-        if not self.args.expect:
+        """Without an exit code, only --min-runtime and --expect can say a job went well."""
+        if not self.args.min_runtime and not self.args.expect:
             return (
                 "failed",
                 f"process ended after {fmt_s(runtime)}; it was adopted, so its exit code is unknown: read its log",
@@ -691,7 +729,7 @@ def adopt_job(name):
     job.st = st
     gpu = st.get("gpu")
     if gpu:  # take the reservation back if nobody else has
-        fd = os.open(lock_path(gpu["uuid"]), os.O_RDWR | os.O_CREAT, 0o644)
+        fd = open_gpu_lock(gpu["uuid"])
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             job.gpu, job.gpu_fd = gpu["uuid"], fd
@@ -774,7 +812,9 @@ def daemonize(job, lock, work):
     os.close(r)
     os.setsid()
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, signal.SIG_IGN)  # the job's end decides; on a reboot the watcher sees the heartbeat stop
+        signal.signal(
+            sig, lambda *_: None
+        )  # the job's end decides. A handler, not SIG_IGN: the job must not inherit ignoring them
     null = os.open(os.devnull, os.O_RDWR)
     for fd in (0, 1, 2):  # nothing of ssh's stays open, or ssh would wait for the job
         os.dup2(null, fd)

@@ -92,6 +92,7 @@ class Base(unittest.TestCase):
             HOME=self.home,
             PATH=self.bin + os.pathsep + os.environ["PATH"],
             JOBWARDEN_HEARTBEAT="0.2",
+            JOBWARDEN_GPU_LOCKS=os.path.join(self.tmp, "gpu-locks"),
             JOBWARDEN_GPU_POLL="0.2",
             JOBWARDEN_HOSTS=os.path.join(self.home, ".config/jobwarden/hosts.json"),
             JOBWARDEN_SSH_DIR=os.path.join(self.tmp, "s"),

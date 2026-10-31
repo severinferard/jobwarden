@@ -45,12 +45,20 @@ class Check(Base):
         self.assertEqual(rc, 6, out)
         self.assertIn("without an answer", out)
 
-    def test_no_check_on_an_ended_job(self):
-        mark = os.path.join(self.tmp, "ran")
-        self.jobrun("c5", "--", "true")
+    def test_a_short_job_still_gets_one_check_at_its_end(self):
+        self.jobrun("c5", "--", "echo loss nan")
         self.wait_state("c5", "done")
-        rc, out = self.wait("c5", "--check", f"touch {mark}; exit 1")
-        self.assertEqual(rc, 0, out)
+        w = self.waiter("c5", "--check-every", "60", "--check", 'grep -q nan "$JOB_DIR/log" && { echo bad; exit 1; }; exit 0')
+        out, _ = w.communicate(timeout=25)
+        self.assertEqual(w.returncode, 6, out)
+        self.assertIn("CHECK: bad (the job itself exited normally)", out)
+
+    def test_no_check_on_a_failed_job(self):
+        mark = os.path.join(self.tmp, "ran")
+        self.jobrun("c7", "--", "exit 3")
+        self.wait_state("c7", "failed")
+        rc, out = self.wait("c7", "--check", f"touch {mark}; exit 1")
+        self.assertEqual(rc, 1, out)
         self.assertFalse(os.path.exists(mark))
 
     def test_it_notifies(self):

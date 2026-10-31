@@ -15,9 +15,11 @@ import shlex
 import sys
 import time
 import traceback
+from importlib import metadata
 
 from . import demo, wait, watch
 from .core import (
+    has_hosts_file,
     LOCAL,
     Transport,
     UnknownHost,
@@ -37,6 +39,13 @@ HASH_JOBRUN = "python3 -c " + shlex.quote(
     "import hashlib, os; "
     "print(hashlib.sha256(open(os.path.expanduser('~/.local/bin/jobrun'), 'rb').read()).hexdigest())"
 )
+
+
+def version():
+    try:
+        return metadata.version("jobwarden")
+    except metadata.PackageNotFoundError:
+        return "unknown"
 
 
 def job_name(text):
@@ -102,7 +111,7 @@ def host_ssh_command(args):
 def install(args):
     hosts = load_hosts()
     settings = get_host(args.host)
-    t = Transport(args.host, settings)
+    t = Transport(args.host, settings, eager=True)
     with open(JOBRUN) as f:
         code = f.read()
     # Atomic and stdin-only: no scp or rsync needed on the host, and a running jobrun keeps its old file.
@@ -133,6 +142,8 @@ def status(args):
     down = reader.down()
     if down:
         print(f"not answering: {', '.join(down)}", file=sys.stderr)
+    if not has_hosts_file():
+        print(f"note: only this machine is shown{no_hosts_note()}", file=sys.stderr)
     if args.json:
         print(json.dumps({"version": 1, "jobs": [public(j) for j in jobs], "down": down}, indent=2))
         return
@@ -140,13 +151,18 @@ def status(args):
         print(
             "no jobs"
             + (f" in project {args.project}" if args.project else "")
-            + ("" if args.all else " (finished ones leave this view after a while; --all shows them)")
-            + no_hosts_note(),
+            + ("" if args.all else " (finished ones leave this view after a while; --all shows them)"),
             file=sys.stderr,
         )
     for j in jobs:
         where = f"{j.get('step')}/{j.get('total')}" if j["total"] else ""
-        print(" · ".join(str(x) for x in (j["name"], j["state"], where, j["stage"], j["note"], j["project"]) if x))
+        print(
+            " · ".join(
+                str(x)
+                for x in (j["name"], j["state"], where, j["stage"], j["note"], j["project"], f"on {j['host']}")
+                if x
+            )
+        )
 
 
 def clear(args):
@@ -230,9 +246,11 @@ def warn_if_outdated(label, t):
     with open(JOBRUN, "rb") as f:
         here = hashlib.sha256(f.read()).hexdigest()
     rc, out, _ = t.run(HASH_JOBRUN)
-    if rc != 0 or out.strip() != here:
+    if rc != 0:
+        print(f"warning: jobrun isn't on {label} yet; `jobwarden install {label}` puts it there", file=sys.stderr)
+    elif out.strip() != here:
         print(
-            f"warning: jobrun on {label} differs from this repo; `jobwarden install {label}` updates it",
+            f"warning: jobrun on {label} differs from this version; `jobwarden install {label}` updates it",
             file=sys.stderr,
         )
 
@@ -248,9 +266,10 @@ def run(argv):
     if not own or own[0].startswith("-"):
         usage("jobwarden run <name> [--host H] [options] -- <cmd>; --help has the details")
     if "--" not in argv:
-        usage(f"missing --: jobwarden run {own[0]} [options] -- {' '.join(own[1:]) or '<cmd>'}")
+        command = "<cmd>" if not own[1:] or any(x.startswith("-") for x in own[1:]) else " ".join(own[1:])
+        usage(f"missing --: jobwarden run {own[0]} [options] -- {command}")
     settings = get_host(known.host)
-    t = Transport(known.host, settings)
+    t = Transport(known.host, settings, eager=True)
     if not is_local(settings):
         warn_if_outdated(known.host, t)
     command = [*own, *argv[cut:]]
@@ -258,7 +277,7 @@ def run(argv):
     sys.stdout.write(out)
     sys.stderr.write(err)
     if rc == 0:
-        print(f"Next: jobwarden watch {own[0]} · jobwarden wait {own[0]} · jobwarden logs {own[0]}")
+        print(f"On {known.host}. Next: jobwarden watch {own[0]} · jobwarden wait {own[0]} · jobwarden logs {own[0]}")
     return rc
 
 
@@ -266,6 +285,7 @@ def parser():
     p = argparse.ArgumentParser(
         prog="jobwarden", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
+    p.add_argument("--version", action="version", version=f"jobwarden {version()}")
     sub = p.add_subparsers(metavar="command")
     sub.add_parser("run", help="start a job, on this machine unless --host (see jobwarden run --help)", add_help=False)
     for mod, name, helptext in (

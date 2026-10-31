@@ -1,6 +1,6 @@
 {
   "name": "jobwarden",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Run long jobs, locally or over SSH, and get woken when they finish, fail or go wrong",
   "author": { "name": "Séverin Férard" },
   "homepage": "https://github.com/severinferard/jobwarden",

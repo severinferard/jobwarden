@@ -3,13 +3,14 @@
 Meant to be started by the Claude session that launched the job, as a background command: Claude Code wakes the session
 up when it exits. Any script can use it too. It reads the job on its host; nothing else needs to be running.
 
-Exits when the job is done or failed, its host has been unreachable for --unreachable minutes, its last progress line is
+Exits when the job is done or failed, its supervisor has died, its host has been unreachable for --unreachable minutes, its last progress line is
 older than --stall minutes, its record is gone, or your --check says so. jobrun decides done or failed when the job ends: a
 non-zero exit, under --min-runtime, or a missing, empty or old --expect file is failed; anything else is done. A job ended with
 jobwarden stop is stopped. The printed line starts with "JOB <name> <EVENT>:". --notify runs a command of yours on each event (see jobwarden/notify.py).
 
 --check wakes you before something goes wrong, for what only your project can tell: a loss going to NaN, a disk filling up.
-Every --check-every minutes while the job runs, the command runs on the job's host, in the job's folder, with $JOB_NAME and
+Every --check-every minutes while the job runs, and once when it exits normally, the command runs on the job's host, in its
+--cwd, with $JOB_NAME and
 $JOB_DIR (its log and status.json) set, and has 30 s. Exit 0: all is well. Exit 1: wake up, and what it printed is the message.
 Anything else, or three runs in a row out of time, means the check itself is broken, which wakes you too rather than leaving you
 unprotected. The job is never touched: to keep waiting, start jobwarden wait again.
@@ -17,7 +18,7 @@ unprotected. The job is never touched: to keep waiting, start jobwarden wait aga
     jobwarden wait ft1 --check 'python3 tools/check_training.py' --check-every 10
 
 Exit code: 0 done, 1 failed, 2 bad usage or unknown host, 3 unreachable, 4 same name on several hosts, 5 cleared / never
-appeared, 6 the check woke you, 7 stopped, 8 stalled, 70 jobwarden itself crashed.
+appeared, 6 the check woke you, 7 stopped, 8 stalled, 9 orphan, 70 jobwarden itself crashed.
 """
 
 import shlex
@@ -26,7 +27,7 @@ import time
 
 from .core import Unreachable, get_host, is_local
 from .notify import Notifier, title
-from .reader import STALL_MIN, UNREACH_MIN, Reader, SleepWatch, blank_job, clean, is_stalled, no_hosts_note
+from .reader import STALE_S, STALL_MIN, UNREACH_MIN, Reader, SleepWatch, blank_job, clean, is_stalled, no_hosts_note
 
 NOTIFY_EVENT = {"CHECK BROKEN": "check", "CLEARED": "gone", "NEVER APPEARED": "gone"}
 
@@ -37,6 +38,8 @@ def alarm(job, seen, started, args, down, awake_since=0):
     if job is None or job["cleared"]:
         if seen:
             return 5, "CLEARED", "its record is gone or was cleared"
+        if down and now - started > args.unreachable * 60:
+            return 3, "UNREACHABLE", f"no such job found, and not answering: {', '.join(down)}"
         if now - started > args.appear * 60:
             why = f" (not answering: {', '.join(down)})" if down else ""
             return 5, "NEVER APPEARED", f"no such job after {args.appear:g} min{why}"
@@ -54,6 +57,12 @@ def alarm(job, seen, started, args, down, awake_since=0):
         if now - since > args.unreachable * 60:
             return 3, "UNREACHABLE", f"for {(now - since) / 60:.0f} min: {note}"
         return None
+    if state == "orphan" and now - awake_since > STALE_S:
+        return (
+            9,
+            "ORPHAN",
+            f"its supervisor died, but the job is still running: `jobwarden adopt {job['name']}` tracks it again",
+        )
     if is_stalled(job, args.stall, awake_since):
         age = (now - job["last_at"]) / 60
         if not job["status"].get("progress") and not job["status"].get("stage"):
@@ -62,7 +71,7 @@ def alarm(job, seen, started, args, down, awake_since=0):
                 "STALLED",
                 (
                     f"no output since {job['updated']} ({age:.0f} min), and no progress line ever seen: it may be "
-                    'healthy but silent. Progress lines look like "12:30:01 step 1/9"; a silent job needs a larger --stall'
+                    'healthy but silent. Progress lines look like "step 1/9"; a silent job needs a larger --stall'
                 ),
             )
         return 8, "STALLED", f"no progress since {job['updated']} ({age:.0f} min), {where}, stage {job['stage'] or '?'}"
@@ -105,7 +114,7 @@ def run(args):
     started, seen, label, down = time.time(), False, args.host, []
     reader = Reader()
     clock = SleepWatch()
-    warned = False
+    warned, unreadable_since = False, None
     next_check, no_answer, awake_since = time.time() + args.check_every * 60, 0, 0
     while True:
         if not label:
@@ -130,6 +139,18 @@ def run(args):
                 no_answer += 1
                 if no_answer >= 3:
                     hit = 6, "CHECK BROKEN", f"{no_answer} runs in a row without an answer: {clean(e)}"
+        if job and job["state"] == "unreadable":
+            unreadable_since = unreadable_since or time.time()
+            if not hit and time.time() - unreadable_since > args.stall * 60:
+                hit = 8, "STALLED", f"its status.json has been unreadable for {args.stall:g} min"
+        else:
+            unreadable_since = None
+        if hit and hit[1] == "DONE" and args.check:  # a short job may never have reached a check
+            try:
+                last = run_check(reader, label, job, args.check)
+                hit = (last[0], last[1], f"{last[2]} (the job itself exited normally)") if last else hit
+            except Unreachable:
+                pass
         if hit:
             code, event, detail = hit
             print(f"JOB {args.name} {event}: {detail}", flush=True)
@@ -137,4 +158,4 @@ def run(args):
                 word = NOTIFY_EVENT.get(event, event.lower())
                 Notifier(args.notify).send(word, title(args.name, word), detail, job or blank_job(args.name, label))
             return code
-        time.sleep(args.interval)
+        time.sleep(min(args.interval, max(next_check - time.time(), 0.1)) if args.check else args.interval)

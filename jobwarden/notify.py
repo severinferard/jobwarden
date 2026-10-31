@@ -8,6 +8,7 @@ Every attempt goes in ~/.cache/jobwarden/notify.log; a failed one is not retried
 """
 
 import os
+import sys
 import time
 
 from .core import run_bounded
@@ -74,6 +75,8 @@ class Notifier:
             )
         except OSError as e:
             outcome = f"failed: {e}"
+        if outcome != "sent":
+            print(f"jobwarden: --notify {outcome}", file=sys.stderr)
         try:
             path = os.path.expanduser("~/.cache/jobwarden/notify.log")
             os.makedirs(os.path.dirname(path), exist_ok=True)

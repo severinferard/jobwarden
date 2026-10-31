@@ -85,7 +85,11 @@ class Progress(Base):
         self.assertEqual(jr.parse_progress("12:01:02 step 4/9 loss nan 0.3s/step")["metrics"], {"loss": "nan"})
         self.assertEqual(jr.parse_progress("\x1b[32m12:01:02 step 4/9\x1b[0m")["step"], 4)
         self.assertEqual(jr.parse_progress("12:01:02 stage gguf")["stage"], "gguf")
-        self.assertIsNone(jr.parse_progress("Loading 3/4 shards"))
+        self.assertEqual(jr.parse_progress("Epoch 3/4 loss=0.5")["step"], 3)
+        self.assertEqual(jr.parse_progress("step 3 of 4")["total"], 4)
+        self.assertEqual(jr.parse_progress(" 45%|####      | 9/20 [00:09<00:11,  2.00it/s, loss=0.5]")["s_per_step"], 0.5)
+        self.assertEqual(jr.parse_progress(" 45%|####      | 9/20 [00:09<00:11,  2.00it/s, loss=0.5]")["metrics"], {"loss": "0.5"})
+        self.assertIsNone(jr.parse_progress("date 10/20/2026"))
         self.assertIsNone(jr.parse_progress("12:01:02 nothing here"))
 
     def test_status_follows_the_log(self):
@@ -179,11 +183,12 @@ class Gpu(Base):
         self.assertEqual(self.env_of("seen"), f"{UUID_B} {UUID_B}")
         self.assertEqual(st["gpu"], {"name": "2060", "uuid": UUID_B, "forced": False})
 
-    def test_no_gpu_means_no_gpu(self):
+    def test_no_gpu_flag_leaves_the_cards_visible_and_reserves_none(self):
         out = os.path.join(self.tmp, "seen")
+        self.env["CUDA_VISIBLE_DEVICES"] = "0,1"
         self.jobrun("g2", "--", f'echo "[$CUDA_VISIBLE_DEVICES]" > {out}')
         self.assertIsNone(self.wait_state("g2", "done")["gpu"])
-        self.assertEqual(self.env_of("seen"), "[]")
+        self.assertEqual(self.env_of("seen"), "[0,1]")
 
     def test_docker_command_is_not_rewritten_and_gets_job_gpu(self):
         out = os.path.join(self.tmp, "docker-args")
@@ -244,7 +249,7 @@ class Gpu(Base):
         self.set_gpus([(UUID_A, "RTX 2080", 5000)], [(UUID_A, 4242, "python3", 4900)])
         r = self.jobrun("q1", "--gpu", "2080", "--wait-gpu", "--", "echo ran")
         self.assertEqual(r.returncode, 0, r.stderr)
-        st = wait_for(
+        wait_for(
             lambda: (x := self.wait_state("q1", "queued")) and "pid 4242" in (x["reason"] or "") and x, 5, "reason"
         )
         time.sleep(0.6)

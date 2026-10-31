@@ -136,7 +136,9 @@ def run_bounded(argv, timeout, stdin_text=None, env=None):
 class Transport:
     """Commands on one host over one shared connection (ControlMaster), each with a hard, process-group timeout."""
 
-    def __init__(self, label, settings):
+    def __init__(self, label, settings, eager=False):
+        """eager: someone is asking right now, so don't make them sit out the backoff."""
+        self.eager = eager
         self.label, self.settings = label, settings
         self.local = is_local(settings)
         os.makedirs(sockets_dir(), mode=0o700, exist_ok=True)
@@ -199,7 +201,7 @@ class Transport:
             if self._master_ok():
                 return
             left, fails = self._backoff_left()
-            if left > 0:
+            if left > 0 and not self.eager:
                 raise Unreachable(f"last connection attempt failed, next in {left:.0f} s")
             self.drop()
             self._note_attempt(fails + 1)  # counted before trying: a killed watcher must not reset the backoff

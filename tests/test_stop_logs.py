@@ -159,12 +159,14 @@ class Friendly(Base):
         self.assertEqual(r.stdout, "")
         self.assertNotIn("no .jobwarden/hosts.json", self.jk("status").stderr)
         self.jobrun("here", "--", "sleep 5")
-        self.assertEqual(self.jk("status", env=env, cwd=self.tmp).stderr, "", "a job was found: nothing to explain")
+        self.assertIn("only this machine is shown", self.jk("status", env=env, cwd=self.tmp).stderr)
 
     def test_a_forgotten_separator_is_one_line(self):
         r = self.jk("run", "x", "sleep", "5")
         self.assertEqual(r.returncode, 2)
         self.assertEqual(r.stderr.strip(), "jobwarden: missing --: jobwarden run x [options] -- sleep 5")
+        r = self.jk("run", "x", "--gpu", "2080", "python3", "t.py")
+        self.assertEqual(r.stderr.strip(), "jobwarden: missing --: jobwarden run x [options] -- <cmd>")
 
     def test_launch_says_what_comes_next(self):
         r = self.jk("run", "n1", "--", "true")

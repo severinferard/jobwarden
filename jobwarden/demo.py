@@ -8,7 +8,7 @@ import time
 
 from .core import LOCAL
 from .reader import ENDED, Reader
-from .watch import overview
+from .watch import overview, plain
 
 NAME = "jobwarden-demo"
 TRAINING = """
@@ -54,21 +54,25 @@ def run(args):
         text=True,
     )
     reader = Reader()
+
+    def draw():
+        job = reader.read(LOCAL, [NAME])[NAME]
+        lines = overview([job] if job else [], {}, None)
+        waiting = f"$ jobwarden wait {NAME} --check '...'   # waiting in the background"
+        print(plain(f"\033[2J\033[H$ jobwarden watch\n\n{lines}\n\n{waiting}"), flush=True)
+        return job
+
     try:
         while wait.poll() is None:
-            job = reader.read(LOCAL, [NAME])[NAME]
-            lines = overview([job] if job else [], {}, None)
-            print(
-                f"\033[2J\033[H$ jobwarden watch\n\n{lines}\n\n$ jobwarden wait {NAME} --check '...'   # waiting in the background",
-                flush=True,
-            )
+            job = draw()
             if job and job["state"] in ENDED:
                 break
             time.sleep(0.5)
+        draw()
         print("\n" + wait.communicate()[0].strip())
         jobrun("stop", NAME, "--grace", "0")
     finally:
         wait.kill()
         shutil.rmtree(jobs_dir, ignore_errors=True)
-    print("Try it on your own job: jobwarden run train -- 'python train.py'")
+    print("Try it on your own job: jobwarden run train -- 'python3 train.py'")
     return 0
