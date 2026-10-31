@@ -90,6 +90,8 @@ class Progress(Base):
         self.assertEqual(jr.parse_progress(" 45%|####      | 9/20 [00:09<00:11,  2.00it/s, loss=0.5]")["s_per_step"], 0.5)
         self.assertEqual(jr.parse_progress(" 45%|####      | 9/20 [00:09<00:11,  2.00it/s, loss=0.5]")["metrics"], {"loss": "0.5"})
         self.assertIsNone(jr.parse_progress("date 10/20/2026"))
+        self.assertEqual(jr.parse_progress("Rendering frame 13 of 35")["step"], 13)
+        self.assertEqual(jr.parse_progress("Progress: 30%")["total"], 100)
         self.assertIsNone(jr.parse_progress("12:01:02 nothing here"))
 
     def test_status_follows_the_log(self):

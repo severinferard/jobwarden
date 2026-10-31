@@ -1,9 +1,13 @@
 import os
+import shutil
 import signal
 import subprocess
+import sys
+import tempfile
 import time
+import unittest
 
-from tests.base import JOBWARDEN, Base, alive, wait_for, write_exe
+from tests.base import JOBRUN, JOBWARDEN, Base, alive, wait_for, write_exe
 
 
 class FirstUsers(Base):
@@ -112,3 +116,71 @@ class FirstUsers(Base):
         wait_for(lambda: not alive(st["pid"]), 5, "the supervisor")
         self.jk("adopt", "a1")
         self.assertEqual(self.wait_state("a1", "done", "failed")["state"], "done")
+
+    def test_a_refused_start_leaves_the_previous_record_alone(self):
+        self.jobrun("r1", "--", "echo first")
+        self.wait_state("r1", "done")
+        self.jobrun("holder", "--gpu", "2080", "--", "sleep 10")
+        self.wait_state("holder", "running")
+        wait_for(lambda: self.jobrun("r1", "--gpu", "2080", "--", "true").returncode == 5, 5, "the refusal")
+        self.assertIn("first", self.log("r1"))
+        self.assertEqual(self.status("r1")["state"], "done")
+
+    def test_stop_says_when_it_had_to_kill(self):
+        self.jobrun("k1", "--", "trap '' TERM; echo up; while :; do sleep 0.2; done")
+        wait_for(lambda: "up" in self.log("k1"), 10, "the trap")
+        r = self.jk("stop", "k1", "--grace", "1")
+        self.assertIn("so it was killed", r.stdout)
+
+    @unittest.skipUnless(sys.platform == "linux" and shutil.which("sudo"), "needs Linux and sudo")
+    def test_a_reservation_works_across_real_unix_users(self):
+        """The Linux rule that broke this (protected_regular) only applies to a second real user: CI creates `jwother`."""
+        if subprocess.run(["sudo", "-n", "id", "jwother"], capture_output=True).returncode != 0:
+            self.skipTest("no second user here")
+        shared = tempfile.mkdtemp(prefix="jwshared", dir="/tmp")
+        self.addCleanup(subprocess.run, ["sudo", "-n", "rm", "-rf", shared])
+        os.chmod(shared, 0o755)
+        jobrun = shutil.copy(JOBRUN, shared)
+        os.chmod(jobrun, 0o755)
+        locks = os.path.join(shared, "locks")
+        smi = os.path.join(shared, "nvidia-smi")
+        shutil.copy(os.path.join(self.bin, "nvidia-smi"), smi)
+        os.chmod(smi, 0o755)
+        os.chmod(self.tmp, 0o755)
+        os.chmod(self.smi, 0o755)
+
+        def start(name, *sudo):
+            home = os.path.join(shared, "home-" + (sudo[-1] if sudo else "me"))
+            prefix = ["sudo", "-n", "-u", "jwother"] if sudo else []
+            subprocess.run([*prefix, "mkdir", "-p", home + "/.jobwarden"], check=True)
+            env = [f"HOME={home}", f"JOBWARDEN_GPU_LOCKS={locks}", f"PATH={shared}:/usr/bin:/bin"]
+            return subprocess.run(
+                [
+                    *prefix,
+                    "env",
+                    *env,
+                    sys.executable,
+                    jobrun,
+                    "start",
+                    name,
+                    "--gpu",
+                    "2080",
+                    "--cwd",
+                    "/tmp",
+                    "--",
+                    "sleep 3",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+        os.chmod(shared, 0o1777)
+        first = start("a", "jwother")  # the other user creates the card's lock file
+        self.assertEqual(first.returncode, 0, first.stderr)
+        busy = start("b")
+        self.assertEqual(busy.returncode, 5, busy.stderr)
+        self.assertIn("reserved by jobrun job a of user jwother", busy.stderr)
+        time.sleep(5)
+        free = start("c")  # used to crash here with PermissionError
+        self.assertEqual(free.returncode, 0, free.stderr)

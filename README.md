@@ -35,7 +35,7 @@ It suits a laptop with a few SSH boxes, or rented pods. It isn't a cluster sched
 You need Python 3.10+ and one of `uv`, `pipx` or `pip`. On a fresh Debian or Ubuntu machine, `sudo apt install pipx && pipx ensurepath` is the quickest route.
 
 ```sh
-uv tool install jobwarden        # or: pipx install jobwarden
+pipx install jobwarden           # or: uv tool install jobwarden. After `pipx ensurepath`, open a new terminal
 jobwarden demo                   # a fake training run: no GPU or SSH needed
 ```
 
@@ -57,11 +57,11 @@ jobwarden host add box1 --ssh user@10.0.0.2          # optional: --jump user@gat
 jobwarden install box1                               # copies one file to the host, which needs python3 3.10+
 ```
 
-jobwarden doesn't copy your code: it must already be on the host, in the folder you give with `--cwd`.
+jobwarden doesn't copy your code: it must already be on the host. On a remote host a job starts in your home folder unless you give `--cwd`. Quote it, as in `--cwd "~/project"`, or your own shell expands `~` to your local home.
 
 jobwarden finds the nearest `.jobwarden/hosts.json` from the current folder upwards. Outside a project it only knows your own machine, and says so.
 
-To uninstall: `uv tool uninstall jobwarden` (or `pipx uninstall`). It leaves your job records in `~/.jobwarden/` and its SSH sockets in `~/.cache/jobwarden/`, and `~/.local/bin/jobrun` on each host. Delete those by hand if you don't want them.
+To uninstall: `pipx uninstall jobwarden` (or `uv tool uninstall jobwarden`). Running jobs carry on. It leaves your job records in `~/.jobwarden/`, its SSH sockets and notification log in `~/.cache/jobwarden/`, and on each host `~/.local/bin/jobrun` and `/tmp/jobwarden-gpu/`. Delete those by hand if you don't want them.
 
 ## For AI agents
 
@@ -82,7 +82,7 @@ In Claude Code, a background command's exit wakes the session, so the agent need
 
 ```sh
 jobwarden run train --host box1 --gpu 2080 --wait-gpu \
-    --cwd ~/project --project demo --summary "Fine-tune v3 on the new dataset" \
+    --cwd "~/project" --project demo --summary "Fine-tune v3 on the new dataset" \
     --min-runtime 600 --expect out/model.gguf \
     -- 'python3 train.py'
 ```
@@ -99,7 +99,7 @@ jobwarden run train --host box1 --gpu 2080 --wait-gpu \
 
 **Quote the command as one argument**, so that variables expand on the host.
 
-**Progress:** print lines like these and you get a bar, an ETA, metrics and stall detection. The word `step` can be anything, a leading clock is fine, and tqdm's bars work too. Until it sees one, `jobwarden watch` shows the log and says there's no bar yet.
+**Progress:** print lines like these and you get a bar, an ETA, metrics and stall detection. The word `step` can be anything, a leading clock is fine, and `frame 13 of 35`, `Progress: 30%` and tqdm's bars work too. ffmpeg's own output doesn't, since it never states a total. Until it sees one, `jobwarden watch` shows the log and says there's no bar yet.
 
 ```
 step 120/900 loss 0.85 1.2s/step
@@ -143,7 +143,7 @@ head -20 ~/.jobwarden/jobs/train/log                      # a job on this machin
 
 Viewers are read-only, so closing one interrupts nothing. Finished jobs leave views after 60 minutes (`$JOBWARDEN_KEEP_MIN`), and nothing in `~/.jobwarden/jobs` is ever deleted.
 
-`stop` gives the job `SIGTERM` so it can save its work. It only reaches that job's process group and its container, and records the state `stopped`. It never stops a pod: a job ending on a host added with `--temporary` is reported as "may still be billing".
+`stop` gives the job `SIGTERM` so it can save its work, and says so if it had to use `SIGKILL`. It only reaches that job's process group and its container, and records the state `stopped`. It never stops a pod: a job ending on a host added with `--temporary` is reported as "may still be billing".
 
 To show something specific to a job in `watch`, such as a results table or live GPU numbers, pass `--config job.py`. See `jobwarden watch --help` and `examples/job_config.py`.
 
@@ -163,6 +163,10 @@ To show something specific to a job in `watch`, such as a results table or live 
 | 8 | `JOB train STALLED:` | no progress for `--stall` minutes (default 20) |
 | 9 | `JOB train ORPHAN:` | its supervisor died but the job is running: run `jobwarden adopt` |
 | 2, 70 | no such line | bad usage or unknown host; jobwarden itself crashed |
+
+`jobwarden run` has its own exit codes: 0 started or queued, 2 bad usage, 3 host unreachable, 4 name already running, 5 GPU busy or unknown.
+
+After `jobwarden adopt`, the exit code is lost, so `DONE` only means its `--min-runtime` and `--expect` checks passed, and its line says so.
 
 **Your own health check** catches what only your project can tell, such as a loss going to NaN, while there's still time to act:
 

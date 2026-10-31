@@ -6,7 +6,7 @@ up when it exits. Any script can use it too. It reads the job on its host; nothi
 Exits when the job is done or failed, its supervisor has died, its host has been unreachable for --unreachable minutes, its last progress line is
 older than --stall minutes, its record is gone, or your --check says so. jobrun decides done or failed when the job ends: a
 non-zero exit, under --min-runtime, or a missing, empty or old --expect file is failed; anything else is done. A job ended with
-jobwarden stop is stopped. The printed line starts with "JOB <name> <EVENT>:". --notify runs a command of yours on each event (see jobwarden/notify.py).
+jobwarden stop is stopped. The printed line starts with "JOB <name> <EVENT>:". --notify runs a command of yours on each event (see the README).
 
 --check wakes you before something goes wrong, for what only your project can tell: a loss going to NaN, a disk filling up.
 Every --check-every minutes while the job runs, and once when it exits normally, the command runs on the job's host, in its
@@ -104,7 +104,7 @@ def add_arguments(p, job_name):
         "--unreachable", type=float, default=UNREACH_MIN, help=f"minutes of unreachable host (default {UNREACH_MIN})"
     )
     p.add_argument("--appear", type=float, default=10, help="minutes to wait for the job to exist (default 10)")
-    p.add_argument("--notify", metavar="COMMAND", help="shell command to run on each event (see jobwarden/notify.py)")
+    p.add_argument("--notify", metavar="COMMAND", help="shell command to run on each event (see the README)")
     p.add_argument("--check", metavar="COMMAND", help="your own health check, run on the host (see above)")
     p.add_argument("--check-every", type=float, default=5, metavar="MIN", help="minutes between checks (default 5)")
     p.add_argument("--interval", type=float, default=15, help="seconds between reads of the job (default 15)")
@@ -125,7 +125,10 @@ def run(args):
             label = found[0] if found else None
             if not label and not warned:
                 warned = True
-                print(f"no job {args.name} yet{no_hosts_note()}", file=sys.stderr)
+                print(
+                    f"no job {args.name} yet: waiting up to {args.appear:g} min for it{no_hosts_note()}",
+                    file=sys.stderr,
+                )
         if clock.slept() and label and is_local(get_host(label)):
             awake_since = time.time()  # a local job was asleep too: that's not a stall
         job = reader.read(label, [args.name])[args.name] if label else None

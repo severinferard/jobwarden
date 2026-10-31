@@ -15,7 +15,7 @@ class LaunchHook(unittest.TestCase):
 
     def test_a_launch_fires_and_the_rest_is_silent(self):
         self.assertIn("jobwarden wait", self.fires("jobwarden run ft1 --host box1 -- train"))
-        for command in ("jobwarden watch x", "jobwarden wait x", "ls | head"):
+        for command in ("jobwarden watch x", "jobwarden wait x", "ls | head", "jobwarden run --help", 'grep "jobwarden run" README.md'):
             self.assertEqual(self.fires(command), "", command)
 
     def test_bad_payload_is_silent(self):

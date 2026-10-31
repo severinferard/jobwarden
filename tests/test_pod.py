@@ -27,7 +27,7 @@ class Pod(Base):
         with socket.socket() as s:
             s.bind(("127.0.0.1", 0))
             self.port = s.getsockname()[1]
-        force = f'env HOME={self.home} PATH={self.bin}:/opt/homebrew/bin:/usr/bin:/bin sh -c "$SSH_ORIGINAL_COMMAND"'
+        force = f'env HOME={self.home} JOBWARDEN_GPU_LOCKS={self.env["JOBWARDEN_GPU_LOCKS"]} PATH={self.bin}:/opt/homebrew/bin:/usr/bin:/bin sh -c "$SSH_ORIGINAL_COMMAND"'
         with open(f"{d}/sshd_config", "w") as f:
             f.write(
                 f"Port {self.port}\nListenAddress 127.0.0.1\nHostKey {d}/host\nAuthorizedKeysFile {d}/authorized_keys\n"

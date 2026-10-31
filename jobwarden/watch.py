@@ -12,7 +12,7 @@ shows the summary on top, bar, step/total, stage, ETA, metrics, the job's reserv
 --json lines look like {"version": 1, "host": "box1", "reachable": true, "error": null, "jobs": [...]}, and "jobs" has the
 fields of jobwarden.jobs() without the raw status. With names it ends once they have all ended.
 
---notify runs a command of yours on each change it sees while open (see jobwarden/notify.py).
+--notify runs a command of yours on each change it sees while open (see the README).
 A sleep of this machine is reported: a job on a remote host carries on, a local one pauses, and nothing is watched meanwhile.
 
 --config points to a small Python file in the project, for what is specific to the job (all optional):
@@ -180,7 +180,7 @@ class Watch:
             )
         lines.append(
             f"  {DIM}started {time.strftime('%H:%M:%S', time.localtime(d['start_at']))}"
-            f" · last progress {time.strftime('%H:%M:%S', time.localtime(d['last_at']))} ({fmt_dur(time.time() - d['last_at'])} ago){RESET}"
+            f" · {'last progress' if st.get('progress') or st.get('stage') else 'last output'} {time.strftime('%H:%M:%S', time.localtime(d['last_at']))} ({fmt_dur(time.time() - d['last_at'])} ago){RESET}"
         )
         lines += ["  " + clean(x) for x in self.config.call("results", d, []) or []]
         lines += [f"  {YELLOW}hook {clean(e)}{RESET}" for e in d.get("hook_errors", [])]

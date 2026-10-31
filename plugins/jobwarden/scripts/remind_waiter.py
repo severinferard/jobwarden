@@ -8,7 +8,7 @@ import json
 import re
 import sys
 
-LAUNCH = re.compile(r"\bjobwarden\s+run\b")
+LAUNCH = re.compile(r"(?:^|[;&|\n])\s*jobwarden\s+run\s+(?!-)", re.M)
 REMINDER = (
     "This command started a job. If it will run longer than a few minutes, start `jobwarden wait <name>` as a background "
     "command now, so this session is woken when it ends or goes wrong, and tell the user about `jobwarden watch <name>`."

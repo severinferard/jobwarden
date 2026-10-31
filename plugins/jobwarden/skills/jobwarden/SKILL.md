@@ -50,7 +50,7 @@ It prints one line, `JOB <name> <EVENT>: ...`:
 | 3 | `UNREACHABLE` | Check the host, read-only, and report |
 | 4 | same name on several hosts | Wait again with `--host` |
 | 5 | `CLEARED`, `NEVER APPEARED` | Check the name, and run from inside the project |
-| 6 | `CHECK`, `CHECK BROKEN` | The job is still running. Diagnose, then tell the user |
+| 6 | `CHECK`, `CHECK BROKEN` | The job is usually still running; the line says if it has already exited. Diagnose, then tell the user |
 | 7 | `STOPPED` | Someone stopped it; say so |
 | 8 | `STALLED` | It may just be silent or slow. Diagnose before acting |
 | 9 | `ORPHAN` | Its supervisor died and the job is running. `jobwarden adopt <name>`, then wait again |

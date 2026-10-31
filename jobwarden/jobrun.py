@@ -57,6 +57,8 @@ CLOCK = r"^\s*(?:\[?(\d\d:\d\d:\d\d)\]?\s+)?"  # optional: a line's own clock is
 PROGRESS = re.compile(CLOCK + r"([A-Za-z_][\w-]*)\s+(\d+)\s*(?:/|\s+of\s+)\s*(\d+)\b(?![/\d])(.*)$")
 TQDM = re.compile(r"\d+%\|[^|]*\|\s*(\d+)/(\d+)\s*(?:\[(.*)\])?")
 TQDM_RATE = re.compile(r"(\d+(?:\.\d+)?)\s*it/s")
+OF_ANYWHERE = re.compile(r"()\b([A-Za-z_][\w-]*)\s+(\d+)\s+of\s+(\d+)\b(.*)$")
+PERCENT = re.compile(r"\bprogress[ :=]+(\d+(?:\.\d+)?)\s*%", re.I)
 STAGE = re.compile(CLOCK + r"stage[ :=]+(.+?)\s*$")
 METRIC = re.compile(r"([A-Za-z_][\w.]*)[ =:]+(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?%?|-?nan|-?inf)(?![\w/.])", re.I)
 SPEED = re.compile(r"(\d+(?:\.\d+)?)\s*s/[A-Za-z]+")
@@ -86,9 +88,12 @@ def parse_progress(line):
             "metrics": metrics,
             "s_per_step": s_per_step,
         }
-    m = PROGRESS.match(line)
+    m = PROGRESS.match(line) or OF_ANYWHERE.search(line)
     if not m or not int(m[4]):
-        return None
+        m = PERCENT.search(line)
+        if not m:
+            return None
+        return {"clock": None, "unit": "%", "step": round(float(m[1])), "total": 100, "metrics": {}, "s_per_step": None}
     speed = SPEED.search(m[5])
     return {
         "clock": m[1],
@@ -203,12 +208,18 @@ def open_gpu_lock(uuid):
         os.chmod(GPU_LOCKS, 0o1777)
     except OSError:
         pass  # another user's folder, already set up
-    fd = os.open(os.path.join(GPU_LOCKS, uuid + ".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o666)
-    try:
-        os.fchmod(fd, 0o666)
-    except OSError:
-        pass
-    return fd
+    path = os.path.join(GPU_LOCKS, uuid + ".lock")
+    while True:
+        try:  # no O_CREAT here: Linux refuses it on another user's file in a shared folder
+            return os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+        except FileNotFoundError:
+            pass
+        try:
+            fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666)
+        except FileExistsError:
+            continue  # another user created it just now
+        os.fchmod(fd, 0o666)  # whatever the umask
+        return fd
 
 
 def try_gpu(uuid):
@@ -411,15 +422,17 @@ class Job:
             return None
 
     def stop(self, proc, grace):
-        """End the job: the container and the process group get SIGTERM, what is left after the grace SIGKILL."""
+        """End the job: the container and the process group get SIGTERM, what is left after the grace SIGKILL. True if it took SIGKILL."""
         if uses_container(self.st["cmd"]):
             stop_container(self.args.name, grace)
         signal_group(proc.pid, signal.SIGTERM)
         end = time.time() + grace
         while proc.poll() is None and time.time() < end:
             time.sleep(0.2)
+        killed = proc.poll() is None
         signal_group(proc.pid, signal.SIGKILL)
         proc.wait()
+        return killed
 
     def wait_gpu(self, candidates):
         """False if a stop was asked for while queued."""
@@ -504,14 +517,15 @@ class Job:
                 break
             grace = self.take_stop_request()
             if grace is not None:
-                self.stop(proc, grace)
+                killed = self.stop(proc, grace)
                 ended = time.time()
+                how = f"it hadn't exited after {grace:g} s, so it was killed, " if killed else ""
                 self.tail.poll()
                 self.save(
                     state="stopped",
                     exit_code=proc.returncode,
                     ended=ended,
-                    reason=f"stopped after {fmt_s(ended - started)}",
+                    reason=f"{how}stopped after {fmt_s(ended - started)}",
                 )
                 return
             if changed or now - last >= HEARTBEAT_S:
@@ -832,11 +846,11 @@ def start(argv):
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         die(f"job {args.name} is already running ({job_dir})", EXIT_NAME)
+    job = Job(args, job_dir)
+    queue = reserve_gpu(job)  # before touching the previous run's record: a refused start must leave it alone
     busy = archive_previous(job_dir)
     if busy:
         die(f"job {args.name}: {busy}; pick another name", EXIT_NAME)
-    job = Job(args, job_dir)
-    queue = reserve_gpu(job)
     job.save()
     daemonize(job, lock, lambda ready: job.supervise(queue, ready))
 
