@@ -10,4 +10,4 @@ class Demo(Base):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("step", r.stdout)
         self.assertIn("JOB jobwarden-demo CHECK: loss is NaN", r.stdout)
-        self.assertFalse(os.path.exists(os.path.join(self.home, "jobs", "jobwarden-demo")))
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".jobwarden", "jobs", "jobwarden-demo")))

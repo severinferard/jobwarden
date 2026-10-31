@@ -4,11 +4,11 @@
     jobrun start <name> [--gpu SHORT_NAME|any|GPU-uuid] [--wait-gpu] [--force] [--cwd DIR] [--summary TEXT] [--project NAME]
                  [--min-runtime SECONDS] [--expect FILE]... -- <cmd>
     jobrun stop <name> [--grace SECONDS]   stop that job only: SIGTERM, then SIGKILL after the grace (default 30)
-    jobrun discover-gpus                   write ~/.config/jobwarden/gpus.json from nvidia-smi and print it
+    jobrun discover-gpus                   write ~/.jobwarden/gpus.json from nvidia-smi and print it
 
 One argument after `--` is a shell string; several are run as they are, without a shell. The job survives SSH
-disconnects. It writes to ~/jobs/<name>/log; ~/jobs/<name>/status.json holds start, pids, heartbeat, GPU, the last
-progress line and, at the end, the exit code. A previous run of the same name moves to ~/jobs/<name>/prev/<time>/.
+disconnects. It writes to ~/.jobwarden/jobs/<name>/log; ~/.jobwarden/jobs/<name>/status.json holds start, pids, heartbeat, GPU, the last
+progress line and, at the end, the exit code. A previous run of the same name moves to ~/.jobwarden/jobs/<name>/prev/<time>/.
 
 Progress lines, parsed here and nowhere else (the word is free: step, turn, scene...):
     HH:MM:SS step 120/513 loss 0.85 1.2s/step
@@ -41,8 +41,8 @@ import sys
 import tempfile
 import time
 
-JOBS = os.path.expanduser("~/jobs")
-GPU_FILE = os.path.expanduser("~/.config/jobwarden/gpus.json")
+JOBS = os.path.expanduser("~/.jobwarden/jobs")
+GPU_FILE = os.path.expanduser("~/.jobwarden/gpus.json")
 FREE_MIB = 500  # a card using more than this counts as busy
 GPU_POLL_S = float(os.environ.get("JOBWARDEN_GPU_POLL", 15))
 HEARTBEAT_S = float(os.environ.get("JOBWARDEN_HEARTBEAT", 5))

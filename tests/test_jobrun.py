@@ -65,7 +65,7 @@ class Supervisor(Base):
         wait_for(lambda: self.jobrun("b", "--", "echo second").returncode == 0, 5, "lock release")
         self.wait_state("b", "done")
         self.assertEqual(self.log("b").strip(), "second")
-        prev = os.path.join(self.home, "jobs", "b", "prev")
+        prev = os.path.join(self.home, ".jobwarden", "jobs", "b", "prev")
         with open(os.path.join(prev, os.listdir(prev)[0], "log")) as f:
             self.assertEqual(f.read().strip(), "first")
 
@@ -225,7 +225,7 @@ class Gpu(Base):
         self.assertEqual(r.returncode, 5)
         for want in ("pid 4242", "python3", "4900 MiB", "--wait-gpu", "--force", UUID_A):
             self.assertIn(want, r.stderr)
-        self.assertFalse(os.path.exists(os.path.join(self.home, "jobs/b1/status.json")))
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".jobwarden/jobs/b1/status.json")))
 
     def test_memory_without_process_counts_as_busy(self):
         self.set_gpus([(UUID_A, "RTX 2080", 5000)], [])

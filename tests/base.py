@@ -1,7 +1,7 @@
 """What the jobwarden tests share: python3 -m unittest discover -s tests -t .   (stdlib only, no network, no real GPU, nothing billable)
 
 SSH is a stub, or a throwaway sshd on 127.0.0.1 standing in for a rented pod (custom
-port, no docker, temporary); jobs live in a temp HOME, never in the real ~/jobs.
+port, no docker, temporary); jobs live in a temp HOME, never in the real ~/.jobwarden/jobs.
 """
 
 import importlib.machinery
@@ -137,14 +137,14 @@ class Base(unittest.TestCase):
         )
 
     def status(self, name):
-        with open(os.path.join(self.home, "jobs", name, "status.json")) as f:
+        with open(os.path.join(self.home, ".jobwarden", "jobs", name, "status.json")) as f:
             return json.load(f)
 
     def wait_state(self, name, *states, timeout=20):
         return wait_for(lambda: (s := self.status(name))["state"] in states and s, timeout, f"{name} in {states}")
 
     def log(self, name):
-        with open(os.path.join(self.home, "jobs", name, "log")) as f:
+        with open(os.path.join(self.home, ".jobwarden", "jobs", name, "log")) as f:
             return f.read()
 
     def dock(self, name):

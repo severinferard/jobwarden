@@ -1,6 +1,6 @@
 """What jobs exist and how they are doing, read from the hosts (stdlib only, no display).
 
-~/jobs/<name>/status.json on the host, written by jobrun, is the only record. Nothing is saved on this machine: each process
+~/.jobwarden/jobs/<name>/status.json on the host, written by jobrun, is the only record. Nothing is saved on this machine: each process
 reads the hosts over their one shared SSH connection, and only remembers its own last read, for when a host stops answering.
 
 A job's state is one of: running, queued, orphan (it outlived its supervisor), unreachable, unreadable, done, failed, stopped.

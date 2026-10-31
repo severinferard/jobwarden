@@ -156,7 +156,7 @@ def clear(args):
         if not found:
             sys.exit(no_job(name, down))
         for label in found:
-            reader.transport(label, all_hosts()[label]).run(f'touch "$HOME/jobs/{name}/.cleared"')
+            reader.transport(label, all_hosts()[label]).run(f'touch "$HOME/.jobwarden/jobs/{name}/.cleared"')
 
 
 def find_job(reader, name, host):
@@ -174,7 +174,7 @@ def logs(args):
     reader = Reader()
     label = find_job(reader, args.name, args.host)
     t = reader.transport(label, get_host(label))
-    path = f'"$HOME/jobs/{args.name}/log"'
+    path = f'"$HOME/.jobwarden/jobs/{args.name}/log"'
     rc, out, err = t.run(f"wc -c < {path}; tail -n {args.lines} {path}")
     if rc != 0:
         sys.exit(no_job(args.name) if "No such file" in err else err.strip())

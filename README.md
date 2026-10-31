@@ -59,7 +59,7 @@ The usual loop for a coding agent:
 
 1. Launch with `jobwarden run`, setting `--min-runtime` and `--expect` whenever you know what a healthy run looks like.
 2. Start `jobwarden wait <name>` as a background command, adding `--check` if a run can go wrong without failing.
-3. When it exits, read the line and the exit code ([the full list](#waiting-for-a-job)). To diagnose, read `~/jobs/<name>/log` on the job's host with normal tools, or use `jobwarden logs <name>` for the last lines.
+3. When it exits, read the line and the exit code ([the full list](#waiting-for-a-job)). To diagnose, read `~/.jobwarden/jobs/<name>/log` on the job's host with normal tools, or use `jobwarden logs <name>` for the last lines.
 
 In Claude Code, a background command's exit wakes the session, so the agent needs no polling at all. Any agent or script that can run a command and read its exit code can use the same loop, but how it gets woken depends on that tool. `examples/claude-code/job_launch.py` is a small Claude Code hook that reminds a session to do this after a launch.
 
@@ -109,22 +109,22 @@ jobwarden stop train --grace 30     # SIGTERM, then SIGKILL after the grace
 jobwarden clear train               # hide a job from views; the job carries on
 ```
 
-**Where a job's files are:** in `~/jobs/<name>/` on the host it runs on, and that location is stable, so read them with whatever tool you like:
+**Where a job's files are:** in `~/.jobwarden/jobs/<name>/` on the host it runs on, and that location is stable, so read them with whatever tool you like:
 
 | File | What it is |
 |:--|:--|
-| `~/jobs/<name>/log` | everything the job printed, in full |
-| `~/jobs/<name>/status.json` | its state, exit code, last progress and heartbeat |
-| `~/jobs/<name>/prev/<time>/` | the log and status of earlier runs under that name |
+| `~/.jobwarden/jobs/<name>/log` | everything the job printed, in full |
+| `~/.jobwarden/jobs/<name>/status.json` | its state, exit code, last progress and heartbeat |
+| `~/.jobwarden/jobs/<name>/prev/<time>/` | the log and status of earlier runs under that name |
 
 The job itself gets the folder as `$JOB_DIR`, and `jobwarden status --json` gives each job's `host` and `dir`. `jobwarden logs` just saves you finding the host. For anything else, use normal tools:
 
 ```sh
-ssh box1 'grep -n "loss" ~/jobs/train/log'
-head -20 ~/jobs/train/log                      # a job on this machine
+ssh box1 'grep -n "loss" ~/.jobwarden/jobs/train/log'
+head -20 ~/.jobwarden/jobs/train/log                      # a job on this machine
 ```
 
-Viewers are read-only, so closing one interrupts nothing. Finished jobs leave views after 60 minutes (`$JOBWARDEN_KEEP_MIN`), and nothing in `~/jobs` is ever deleted.
+Viewers are read-only, so closing one interrupts nothing. Finished jobs leave views after 60 minutes (`$JOBWARDEN_KEEP_MIN`), and nothing in `~/.jobwarden/jobs` is ever deleted.
 
 `stop` only reaches that job's process group and its container, and records the state `stopped`. It never stops a pod: a job ending on a host added with `--temporary` is reported as "may still be billing".
 
@@ -237,7 +237,7 @@ your machine                             host
 jobwarden run ───── ssh ───────────────► jobrun ──► supervisor ──► your job
                                                         │              │
 jobwarden watch ──┐                                     ▼              ▼
-jobwarden wait  ──┼─ one shared ssh ───► reads   ~/jobs/<name>/status.json, log
+jobwarden wait  ──┼─ one shared ssh ───► reads ~/.jobwarden/jobs/<name>/status.json, log
 jobwarden.live() ─┘   connection
 ```
 

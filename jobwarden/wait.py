@@ -73,7 +73,7 @@ def run_check(reader, label, job, command):
     """(exit code, event, detail) if the check wakes us, None if all is well; raises Unreachable if it got no answer in time."""
     q = shlex.quote
     script = (
-        f'cd {q(job["status"].get("cwd") or ".")} || exit 125; JOB_NAME={q(job["name"])} JOB_DIR="$HOME/jobs/"{q(job["name"])} '
+        f'cd {q(job["status"].get("cwd") or ".")} || exit 125; JOB_NAME={q(job["name"])} JOB_DIR="$HOME/.jobwarden/jobs/"{q(job["name"])} '
         f"sh -c {q(command)}"
     )
     rc, out, err = reader.transport(label, get_host(label)).run(script)

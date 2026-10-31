@@ -41,7 +41,7 @@ class Stop(Base):
         self.wait_state("s3", "queued")
         self.assertEqual(self.jk("stop", "s3").returncode, 0)
         self.assertEqual(self.status("s3")["state"], "stopped")
-        self.assertNotIn("ran", self.log("s3") if os.path.exists(os.path.join(self.home, "jobs/s3/log")) else "")
+        self.assertNotIn("ran", self.log("s3") if os.path.exists(os.path.join(self.home, ".jobwarden/jobs/s3/log")) else "")
 
     def test_without_a_supervisor_it_stops_the_job_itself(self):
         self.jobrun("s4", "--", "sleep 60")
@@ -60,7 +60,7 @@ class Stop(Base):
         jr = load_jobrun()
         self.jobrun("s5", "--", "true")
         self.wait_state("s5", "done")
-        path = os.path.join(self.home, "jobs/s5/status.json")
+        path = os.path.join(self.home, ".jobwarden/jobs/s5/status.json")
         st = self.status("s5")
         st.update(state="running", job_pid=victim.pid)
         with open(path, "w") as f:
@@ -140,7 +140,7 @@ class JobFolder(Base):
         self.jobrun("d1", "--", "echo hello")
         self.wait_state("d1", "done")
         folder = self.dock("d1")["dir"]
-        self.assertEqual(os.path.realpath(folder), os.path.realpath(os.path.join(self.home, "jobs", "d1")))
+        self.assertEqual(os.path.realpath(folder), os.path.realpath(os.path.join(self.home, ".jobwarden", "jobs", "d1")))
         with open(os.path.join(folder, "log")) as f:
             self.assertEqual(f.read().strip(), "hello")
 

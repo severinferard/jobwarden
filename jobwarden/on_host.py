@@ -5,7 +5,7 @@ import json
 import os
 import time
 
-JOBS = os.path.expanduser("~/jobs")
+JOBS = os.path.expanduser("~/.jobwarden/jobs")
 
 
 def last_lines(path, count=8, width=300):

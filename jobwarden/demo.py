@@ -28,7 +28,7 @@ def jobrun(*args):
 
 
 def run(args):
-    jobs_dir = os.path.expanduser(f"~/jobs/{NAME}")
+    jobs_dir = os.path.expanduser(f"~/.jobwarden/jobs/{NAME}")
     jobrun("stop", NAME, "--grace", "0")
     shutil.rmtree(jobs_dir, ignore_errors=True)
     started = jobrun("start", NAME, "--summary", "A fake training run", "--", sys.executable, "-c", TRAINING)

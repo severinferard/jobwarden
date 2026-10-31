@@ -96,7 +96,7 @@ class NoCache(Base):
         self.jobrun("fresh", "--", "sleep 30")
         code = (
             "import os, sys; sys.path.insert(0, %r)\nimport jobwarden\nprint(len(jobwarden.jobs()))\n"
-            "open(os.path.expanduser('~/jobs/fresh/.cleared'), 'w').close()\nprint(len(jobwarden.jobs()))" % ROOT
+            "open(os.path.expanduser('~/.jobwarden/jobs/fresh/.cleared'), 'w').close()\nprint(len(jobwarden.jobs()))" % ROOT
         )
         r = subprocess.run([sys.executable, "-c", code], env=self.env, capture_output=True, text=True, timeout=20)
         self.assertEqual(r.stdout.split(), ["1", "0"], r.stderr)
@@ -227,7 +227,7 @@ class Views(Base):
     """What leaves the views, and that leaving them changes nothing else."""
 
     def edit_status(self, name, **fields):
-        path = os.path.join(self.home, "jobs", name, "status.json")
+        path = os.path.join(self.home, ".jobwarden", "jobs", name, "status.json")
         with open(path) as f:
             st = json.load(f)
         st.update(fields)
@@ -316,7 +316,7 @@ class Waiter(Base):
         self.jobrun("cl", "--", "sleep 20")
         wa = self.waiter("cl")
         time.sleep(0.5)
-        shutil.rmtree(os.path.join(self.home, "jobs/cl"))
+        shutil.rmtree(os.path.join(self.home, ".jobwarden/jobs/cl"))
         out, _ = wa.communicate(timeout=20)
         self.assertEqual(wa.returncode, 5, out)
 
