@@ -224,6 +224,10 @@ jobwarden works in any terminal, and needs nothing from [cmux](https://cmux.com)
 
 **A custom Dock:** for your own layout, or to show the hosts' GPUs next to the jobs, write a small script around [`jobwarden.live()`](#building-your-own-dashboard), keep it in the project, and make it the control's `command`. Since `live()` reads in the background, the script only has to redraw.
 
+<img src="https://raw.githubusercontent.com/severinferard/jobwarden/main/docs/dock.png" alt="A custom Dock showing CPU, RAM and GPU use for two hosts, above a job's progress bar" width="400">
+
+This one is a script of about 200 lines around `jobwarden.live()`. The machine numbers come from [hoststats](https://github.com/severinferard/hoststats), a small sibling of jobwarden. The host, job and project names in the image are changed.
+
 **Notifications:**
 
 ```sh
@@ -283,6 +287,6 @@ To release, set the version in `pyproject.toml` and push a matching tag such as 
 
 The tests take about 2 minutes and use no network, real GPU or billable service: SSH is a stub or a throwaway `sshd` on localhost, and `HOME` is a temp folder.
 
-`examples/project_dock.py` and `examples/job_config.py` also use `hoststats`, a separate package for CPU and GPU numbers that isn't published yet.
+`examples/project_dock.py` and `examples/job_config.py` also use [hoststats](https://github.com/severinferard/hoststats), a separate single-file tool for CPU and GPU numbers. Clone it next to this repo as `~/Code/hoststats`, or edit the path at the top of the example.
 
 MIT licence: see `LICENSE`.
