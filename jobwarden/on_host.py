@@ -44,6 +44,7 @@ def job(name):
         "log": last_lines(os.path.join(folder, "log")),
         "job_alive": alive(status.get("job_pid")) if status else False,
         "cleared": os.path.exists(os.path.join(folder, ".cleared")),
+        "dir": folder,
     }
 
 

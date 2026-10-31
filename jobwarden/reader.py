@@ -68,7 +68,7 @@ def blank_job(name, host):
     return dict(
         name=name,
         host=host,
-        project=None,
+        project=None, dir="",
         state="unreadable",
         note="",
         status={},
@@ -150,6 +150,7 @@ def describe(name, record, now, label, settings):
         ended_at=wall - max(now - (st.get("ended") or st.get("heartbeat") or now), 0) if over else None,
         temporary=bool(settings.get("temporary")),
         cleared=record["cleared"],
+        dir=record["dir"],
     )
 
 

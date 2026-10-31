@@ -135,6 +135,16 @@ class Logs(Base):
         self.assertIn("no job nope", r.stderr)
 
 
+class JobFolder(Base):
+    def test_status_says_where_the_files_are(self):
+        self.jobrun("d1", "--", "echo hello")
+        self.wait_state("d1", "done")
+        folder = self.dock("d1")["dir"]
+        self.assertEqual(os.path.realpath(folder), os.path.realpath(os.path.join(self.home, "jobs", "d1")))
+        with open(os.path.join(folder, "log")) as f:
+            self.assertEqual(f.read().strip(), "hello")
+
+
 class Friendly(Base):
     def jk(self, *args, env=None, cwd=None):
         return subprocess.run(

@@ -57,7 +57,7 @@ The usual loop for a coding agent:
 
 1. Launch with `jobwarden run`, setting `--min-runtime` and `--expect` whenever you know what a healthy run looks like.
 2. Start `jobwarden wait <name>` as a background command, adding `--check` if a run can go wrong without failing.
-3. When it exits, read the line and the exit code ([the full list](#waiting-for-a-job)). Use `jobwarden logs <name>` to diagnose.
+3. When it exits, read the line and the exit code ([the full list](#waiting-for-a-job)). To diagnose, read `~/jobs/<name>/log` on the job's host with normal tools, or use `jobwarden logs <name>` for the last lines.
 
 In Claude Code, a background command's exit wakes the session, so the agent needs no polling at all. Any agent or script that can run a command and read its exit code can use the same loop, but how it gets woken depends on that tool. `examples/claude-code/job_launch.py` is a small Claude Code hook that reminds a session to do this after a launch.
 
@@ -105,6 +105,21 @@ jobwarden status                    # a one-off list; --all includes hidden jobs
 jobwarden logs train -n 50 -f       # finds the host for you; -f follows until the job ends
 jobwarden stop train --grace 30     # SIGTERM, then SIGKILL after the grace
 jobwarden clear train               # hide a job from views; the job carries on
+```
+
+**Where a job's files are:** in `~/jobs/<name>/` on the host it runs on, and that location is stable, so read them with whatever tool you like:
+
+| File | What it is |
+|:--|:--|
+| `~/jobs/<name>/log` | everything the job printed, in full |
+| `~/jobs/<name>/status.json` | its state, exit code, last progress and heartbeat |
+| `~/jobs/<name>/prev/<time>/` | the log and status of earlier runs under that name |
+
+The job itself gets the folder as `$JOB_DIR`, and `jobwarden status --json` gives each job's `host` and `dir`. `jobwarden logs` just saves you finding the host. For anything else, use normal tools:
+
+```sh
+ssh box1 'grep -n "loss" ~/jobs/train/log'
+head -20 ~/jobs/train/log                      # a job on this machine
 ```
 
 Viewers are read-only, so closing one interrupts nothing. Finished jobs leave views after 60 minutes (`$JOBWARDEN_KEEP_MIN`), and nothing in `~/jobs` is ever deleted.
@@ -175,7 +190,7 @@ while True:
 
 `jobwarden.jobs()` reads the hosts right now, and can wait about 40 s on a dead one. Import from where the package is installed; a `uv tool` install has its own environment, so a script may need `sys.path` set as in `examples/project_dock.py`.
 
-Every job has these fields: `name`, `host`, `project`, `state` (`running`, `queued`, `orphan`, `unreachable`, `unreadable`, `done`, `failed`, `stopped`), `note`, `summary`, `gpu`, `step`, `total`, `frac`, `stage`, `metrics`, `eta_s`, `updated`, `last_at`, `start_at`, `ended_at`, `unreachable_since`, `temporary`, `cleared`, `log` (last lines), and in Python `status` (the raw `status.json`).
+Every job has these fields: `name`, `host`, `dir`, `project`, `state` (`running`, `queued`, `orphan`, `unreachable`, `unreadable`, `done`, `failed`, `stopped`), `note`, `summary`, `gpu`, `step`, `total`, `frac`, `stage`, `metrics`, `eta_s`, `updated`, `last_at`, `start_at`, `ended_at`, `unreachable_since`, `temporary`, `cleared`, `log` (last lines), and in Python `status` (the raw `status.json`).
 
 From another language, `jobwarden watch --json` prints one line per host at each read:
 
