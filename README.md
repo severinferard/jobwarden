@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
-    <img src="docs/logo-light.svg" alt="" width="96">
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/severinferard/jobwarden/main/docs/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/severinferard/jobwarden/main/docs/logo-light.svg" alt="" width="96">
   </picture>
 
   <h1>jobwarden</h1>
@@ -9,7 +9,7 @@
 
 **Watch long-running jobs live, on this machine or over SSH, and let your AI agent get woken when they need attention.**
 
-![A real Claude Code session: it starts a training run, a health check wakes it when the loss diverges, and it stops the job and finds the cause](docs/demo.gif)
+![A real Claude Code session: it starts a training run, a health check wakes it when the loss diverges, and it stops the job and finds the cause](https://raw.githubusercontent.com/severinferard/jobwarden/main/docs/demo.gif)
 
 Start a job, see its progress as it runs, and walk away. It's built for AI coding agents like Claude Code, which shouldn't burn a session polling a training run or write a new watcher script each time: the agent waits on one command, which exits with a clear result as soon as the job finishes, fails, stalls, or fails your own health check. You follow along in the same live view.
 
