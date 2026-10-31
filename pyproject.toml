@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jobwarden"
+version = "0.1.0"
+description = "Launch, watch and wake on long jobs across hosts, over SSH, with no daemon"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+jobwarden = "jobwarden.cli:main"
+
+[tool.setuptools]
+packages = ["jobwarden"]
+
+[tool.ruff]
+line-length = 120
