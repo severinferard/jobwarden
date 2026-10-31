@@ -49,7 +49,6 @@ def run(args):
                 break
             time.sleep(0.5)
         print("\n" + wait.communicate()[0].strip())
-        print(f"\nThe wait exited with code {wait.returncode}, which is what wakes an agent. The job kept running until the demo stopped it.")
         jobrun("stop", NAME, "--grace", "0")
     finally:
         wait.kill()

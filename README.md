@@ -1,4 +1,7 @@
-<img src="docs/logo.svg" alt="" width="96">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/logo-dark.svg">
+  <img src="docs/logo-light.svg" alt="" width="96">
+</picture>
 
 # jobwarden
 
