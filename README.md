@@ -1,3 +1,5 @@
+<img src="docs/logo.svg" alt="" width="96">
+
 # jobwarden
 
 **Watch long-running jobs live, on this machine or over SSH, and let your AI agent get woken when they need attention.**
