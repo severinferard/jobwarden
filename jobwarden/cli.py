@@ -208,6 +208,19 @@ def stop(args):
     return rc
 
 
+def adopt(args):
+    reader = Reader()
+    label = find_job(reader, args.name, args.host)
+    settings = get_host(label)
+    t = reader.transport(label, settings)
+    if not is_local(settings):
+        warn_if_outdated(label, t)
+    rc, out, err = t.run(f"{jobrun_command(settings)} adopt {args.name}")
+    sys.stdout.write(out)
+    sys.stderr.write(err)
+    return rc
+
+
 def jobrun_command(settings):
     return f"{shlex.quote(sys.executable)} {shlex.quote(JOBRUN)}" if is_local(settings) else REMOTE_JOBRUN
 
@@ -219,7 +232,8 @@ def warn_if_outdated(label, t):
     rc, out, _ = t.run(HASH_JOBRUN)
     if rc != 0 or out.strip() != here:
         print(
-            f"warning: jobrun on {label} differs from this repo; `jobwarden install {label}` updates it", file=sys.stderr
+            f"warning: jobrun on {label} differs from this repo; `jobwarden install {label}` updates it",
+            file=sys.stderr,
         )
 
 
@@ -289,6 +303,10 @@ def parser():
     s.add_argument("--host", help="only for a name that exists on several hosts")
     s.add_argument("--grace", type=float, default=30, help="seconds before SIGKILL (default 30)")
     s.set_defaults(func=stop)
+    s = sub.add_parser("adopt", help="follow a running job whose supervisor has died, so its progress is tracked again")
+    s.add_argument("name", type=job_name)
+    s.add_argument("--host", help="only for a name that exists on several hosts")
+    s.set_defaults(func=adopt)
     s = sub.add_parser("install", help="copy jobrun to ~/.local/bin on a host, discover its GPUs into short names")
     s.add_argument("host")
     s.set_defaults(func=install)

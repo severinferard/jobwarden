@@ -35,7 +35,21 @@ def run(args):
     if started.returncode != 0:
         sys.exit(started.stderr.strip())
     wait = subprocess.Popen(
-        [sys.executable, "-m", "jobwarden", "wait", NAME, "--host", LOCAL, "--interval", "0.5", "--check-every", "0.02", "--check", CHECK],
+        [
+            sys.executable,
+            "-m",
+            "jobwarden",
+            "wait",
+            NAME,
+            "--host",
+            LOCAL,
+            "--interval",
+            "0.5",
+            "--check-every",
+            "0.02",
+            "--check",
+            CHECK,
+        ],
         stdout=subprocess.PIPE,
         text=True,
     )
@@ -44,7 +58,10 @@ def run(args):
         while wait.poll() is None:
             job = reader.read(LOCAL, [NAME])[NAME]
             lines = overview([job] if job else [], {}, None)
-            print(f"\033[2J\033[H$ jobwarden watch\n\n{lines}\n\n$ jobwarden wait {NAME} --check '...'   # waiting in the background", flush=True)
+            print(
+                f"\033[2J\033[H$ jobwarden watch\n\n{lines}\n\n$ jobwarden wait {NAME} --check '...'   # waiting in the background",
+                flush=True,
+            )
             if job and job["state"] in ENDED:
                 break
             time.sleep(0.5)

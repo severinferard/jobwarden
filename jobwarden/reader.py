@@ -68,7 +68,8 @@ def blank_job(name, host):
     return dict(
         name=name,
         host=host,
-        project=None, dir="",
+        project=None,
+        dir="",
         state="unreadable",
         note="",
         status={},
@@ -100,7 +101,10 @@ def assess(st, now, job_alive):
         return ("queued", st.get("reason") or "") if state == "queued" else ("running", "")
     since = fmt_dur(now - st.get("heartbeat", now))
     if job_alive:
-        return "orphan", f"supervisor gone for {since}, job still alive (its exit code won't be recorded)"
+        return (
+            "orphan",
+            f"supervisor gone for {since}, job still alive; `jobwarden adopt` tracks it again, though its exit code is lost",
+        )
     return (
         "failed",
         f"supervisor gone for {since} and no job process left (host rebooted or killed?), exit code unknown",

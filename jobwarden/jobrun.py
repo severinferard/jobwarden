@@ -4,6 +4,7 @@
     jobrun start <name> [--gpu SHORT_NAME|any|GPU-uuid] [--wait-gpu] [--force] [--cwd DIR] [--summary TEXT] [--project NAME]
                  [--min-runtime SECONDS] [--expect FILE]... -- <cmd>
     jobrun stop <name> [--grace SECONDS]   stop that job only: SIGTERM, then SIGKILL after the grace (default 30)
+    jobrun adopt <name>                    follow a running job whose supervisor has died, so its progress is tracked again
     jobrun discover-gpus                   write ~/.jobwarden/gpus.json from nvidia-smi and print it
 
 One argument after `--` is a shell string; several are run as they are, without a shell. The job survives SSH
@@ -298,6 +299,22 @@ def own_process(pid, name):
         return False
 
 
+class AdoptedProcess:
+    """A job this supervisor didn't start: it can watch the process but never learn its exit code."""
+
+    returncode = None
+
+    def __init__(self, pid, name):
+        self.pid, self.name = pid, name
+
+    def poll(self):
+        return None if own_process(self.pid, self.name) else "gone"
+
+    def wait(self):
+        while self.poll() is None:
+            time.sleep(0.2)
+
+
 class Job:
     def __init__(self, args, job_dir):
         self.args, self.dir = args, job_dir
@@ -428,6 +445,57 @@ class Job:
                 return "failed", f"exit 0 but expected file was not written by this run: {f}"
         return "done", f"exit 0 after {fmt_s(runtime)}"
 
+    def verdict_when_adopted(self, _rc, runtime):
+        """Without an exit code, only --expect can say a job went well."""
+        if not self.args.expect:
+            return (
+                "failed",
+                f"process ended after {fmt_s(runtime)}; it was adopted, so its exit code is unknown: read its log",
+            )
+        state, reason = self.verdict(0, runtime)
+        return state, reason.replace("exit 0", "exit code unknown (adopted)")
+
+    def follow(self, proc, started, verdict):
+        """Track a running job until it ends, then record the outcome."""
+        last = 0
+        while True:
+            rc = proc.poll()
+            changed = self.tail.poll()
+            now = time.time()
+            if rc is not None:
+                break
+            grace = self.take_stop_request()
+            if grace is not None:
+                self.stop(proc, grace)
+                ended = time.time()
+                self.tail.poll()
+                self.save(
+                    state="stopped",
+                    exit_code=proc.returncode,
+                    ended=ended,
+                    reason=f"stopped after {fmt_s(ended - started)}",
+                )
+                return
+            if changed or now - last >= HEARTBEAT_S:
+                self.save()
+                last = now
+            time.sleep(1 if HEARTBEAT_S >= 1 else HEARTBEAT_S)
+        ended = time.time()
+        state, reason = verdict(rc, ended - started)
+        self.tail.poll()
+        self.save(state=state, exit_code=proc.returncode, ended=ended, reason=reason)
+
+    def adopt(self, ready):
+        """Runs in the detached process, for a job whose supervisor has died."""
+        try:
+            self.save(state="running", reason=None)
+            os.close(ready)
+            proc = AdoptedProcess(self.st["job_pid"], self.args.name)
+            self.follow(proc, self.st["start"], self.verdict_when_adopted)
+        except Exception as e:
+            self.save(reason=f"supervisor error: {e}")
+            raise
+
     def supervise(self, candidates, ready):
         """Runs in the detached process. `ready` is written once the outcome of the launch is known."""
 
@@ -454,33 +522,7 @@ class Job:
                 return
             self.save(state="running", job_pid=proc.pid)
             release()
-            last = 0
-            while True:
-                rc = proc.poll()
-                changed = self.tail.poll()
-                now = time.time()
-                if rc is not None:
-                    break
-                grace = self.take_stop_request()
-                if grace is not None:
-                    self.stop(proc, grace)
-                    ended = time.time()
-                    self.tail.poll()
-                    self.save(
-                        state="stopped",
-                        exit_code=proc.returncode,
-                        ended=ended,
-                        reason=f"stopped after {fmt_s(ended - started)}",
-                    )
-                    return
-                if changed or now - last >= HEARTBEAT_S:
-                    self.save()
-                    last = now
-                time.sleep(1 if HEARTBEAT_S >= 1 else HEARTBEAT_S)
-            ended = time.time()
-            state, reason = self.verdict(rc, ended - started)
-            self.tail.poll()
-            self.save(state=state, exit_code=rc, ended=ended, reason=reason)
+            self.follow(proc, started, self.verdict)
         except Exception as e:  # the job (if any) runs on; a watcher sees the heartbeat stop
             self.save(reason=f"supervisor error: {e}")
             raise
@@ -618,6 +660,47 @@ def stop_job(name, grace):
     return 0
 
 
+def adopt_job(name):
+    """Start a new supervisor for a job that's still running without one."""
+    job_dir = os.path.join(JOBS, name)
+    try:
+        with open(os.path.join(job_dir, "status.json")) as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        die(f"no job {name}", 1)
+    if st.get("state") in ("done", "failed", "stopped"):
+        print(f"{name}: already {st['state']}, nothing to adopt")
+        return
+    lock = os.open(os.path.join(job_dir, "lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        die(f"job {name} still has its supervisor: nothing to adopt", 1)
+    if not st.get("job_pid") or not own_process(st["job_pid"], name):
+        die(f"job {name} has no process left to follow", 1)
+    args = argparse.Namespace(
+        name=name,
+        cwd=st["cwd"],
+        cmd=[st["cmd"]],
+        summary=st.get("summary", ""),
+        project=st.get("project"),
+        min_runtime=st.get("min_runtime") or 0,
+        expect=st.get("expect") or [],
+    )
+    job = Job(args, job_dir)
+    job.st = st
+    gpu = st.get("gpu")
+    if gpu:  # take the reservation back if nobody else has
+        fd = os.open(lock_path(gpu["uuid"]), os.O_RDWR | os.O_CREAT, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            job.gpu, job.gpu_fd = gpu["uuid"], fd
+            claim_gpu(fd, name)
+        except OSError:
+            os.close(fd)
+    daemonize(job, lock, job.adopt)
+
+
 def parse_start(argv):
     if "--" not in argv:
         die("missing --: jobrun start <name> [options] -- <cmd>; --help has the details")
@@ -671,8 +754,8 @@ def reserve_gpu(job):
     die("\n".join(whys) + "\nRefusing to start: --wait-gpu queues for it, --force overrides.", EXIT_GPU)
 
 
-def daemonize(job, lock, queue):
-    """Fork the supervisor. The parent reports how the launch went and exits; the child never returns."""
+def daemonize(job, lock, work):
+    """Fork the supervisor, which runs work(ready). The parent reports how the launch went and exits; the child never returns."""
     r, w = os.pipe()
     sys.stdout.flush()
     if os.fork():
@@ -695,7 +778,7 @@ def daemonize(job, lock, queue):
     null = os.open(os.devnull, os.O_RDWR)
     for fd in (0, 1, 2):  # nothing of ssh's stays open, or ssh would wait for the job
         os.dup2(null, fd)
-    job.supervise(queue, w)
+    work(w)
     os._exit(0)
 
 
@@ -715,7 +798,7 @@ def start(argv):
     job = Job(args, job_dir)
     queue = reserve_gpu(job)
     job.save()
-    daemonize(job, lock, queue)
+    daemonize(job, lock, lambda ready: job.supervise(queue, ready))
 
 
 def main(argv=None):
@@ -733,6 +816,10 @@ def main(argv=None):
         if not NAME_OK.match(args.name):
             die(f"bad job name {args.name!r}")
         sys.exit(stop_job(args.name, args.grace))
+    elif command == "adopt":
+        if len(argv) != 2 or not NAME_OK.match(argv[1]):
+            die("usage: jobrun adopt <name>")
+        adopt_job(argv[1])
     elif command == "discover-gpus":
         try:
             print(json.dumps(discover()))
@@ -740,7 +827,7 @@ def main(argv=None):
             print("{}")
             print(f"jobrun: {e}", file=sys.stderr)
     else:
-        die("usage: jobrun start|stop|discover-gpus ...; --help has the details")
+        die("usage: jobrun start|stop|adopt|discover-gpus ...; --help has the details")
 
 
 if __name__ == "__main__":

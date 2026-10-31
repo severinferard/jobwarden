@@ -106,6 +106,7 @@ jobwarden watch --project demo      # every job, compact; picks up new ones and 
 jobwarden status                    # a one-off list; --all includes hidden jobs
 jobwarden logs train -n 50 -f       # finds the host for you; -f follows until the job ends
 jobwarden stop train --grace 30     # SIGTERM, then SIGKILL after the grace
+jobwarden adopt train               # a job's supervisor died: track it again
 jobwarden clear train               # hide a job from views; the job carries on
 ```
 
@@ -257,7 +258,7 @@ When the job's process ends, the supervisor records the first match:
 | Exit 0, but an `--expect` file is missing, empty or older than the start | `failed` |
 | Otherwise | `done` |
 
-If the supervisor's heartbeat goes quiet for 60 s, readers report `orphan` when the job's process is still alive, and `failed` with an unknown exit code when it's gone. A reboot looks like this too, even if the job had in fact finished.
+If the supervisor's heartbeat goes quiet for 60 s, readers report `orphan` when the job's process is still alive, and `failed` with an unknown exit code when it's gone. A reboot looks like this too, even if the job had in fact finished. `jobwarden adopt <name>` starts a new supervisor for an `orphan`. It can't learn the exit code, so the job then counts as `done` only if its `--min-runtime` and `--expect` checks pass, and as `failed` if it has none.
 
 ## What it doesn't catch
 
