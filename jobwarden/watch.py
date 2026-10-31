@@ -355,7 +355,7 @@ def run_stream(args):
             if wanted and wanted <= ended:
                 finished.set()
 
-    live = Live(args.project, args.interval, args.host, include_hidden, emit)
+    Live(args.project, args.interval, args.host, include_hidden, emit)
     try:
         while not finished.wait(1):
             pass

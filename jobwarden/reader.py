@@ -12,7 +12,7 @@ import re
 import threading
 import time
 
-from .core import LOCAL, Transport, UnknownHost, Unreachable, get_host, load_hosts
+from .core import LOCAL, Transport, UnknownHost, Unreachable, get_host, has_hosts_file, load_hosts
 
 STALE_S = float(os.environ.get("JOBWARDEN_STALE", 60))  # heartbeat older than this: the supervisor is gone
 STALL_MIN, UNREACH_MIN = 20, 10
@@ -153,10 +153,17 @@ def describe(name, record, now, label, settings):
     )
 
 
+def no_hosts_note():
+    """Why a remote job can't be found from here, if that's the reason."""
+    if has_hosts_file():
+        return ""
+    return f"; no .jobwarden/hosts.json from {os.getcwd()} upwards, so only this machine is known"
+
+
 def no_job(name, down=()):
     """What to say about a job that isn't found."""
     why = f"not answering: {', '.join(down)}; " if down else ""
-    return f"no job {name} ({why}`jobwarden status --all` lists the jobs of this project's hosts)"
+    return f"no job {name} ({why}`jobwarden status --all` lists the jobs of this project's hosts{no_hosts_note()})"
 
 
 def is_stalled(job, minutes=STALL_MIN, awake_since=0):

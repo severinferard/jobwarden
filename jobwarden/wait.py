@@ -21,11 +21,12 @@ appeared, 6 the check woke you, 7 stopped, 8 stalled, 70 jobwarden itself crashe
 """
 
 import shlex
+import sys
 import time
 
 from .core import Unreachable, get_host, is_local
 from .notify import Notifier, title
-from .reader import STALL_MIN, UNREACH_MIN, Reader, SleepWatch, blank_job, clean, is_stalled
+from .reader import STALL_MIN, UNREACH_MIN, Reader, SleepWatch, blank_job, clean, is_stalled, no_hosts_note
 
 NOTIFY_EVENT = {"CHECK BROKEN": "check", "CLEARED": "gone", "NEVER APPEARED": "gone"}
 
@@ -104,6 +105,7 @@ def run(args):
     started, seen, label, down = time.time(), False, args.host, []
     reader = Reader()
     clock = SleepWatch()
+    warned = False
     next_check, no_answer, awake_since = time.time() + args.check_every * 60, 0, 0
     while True:
         if not label:
@@ -112,6 +114,9 @@ def run(args):
                 print(f"JOB {args.name} is on several hosts ({', '.join(found)}): use --host")
                 return 4
             label = found[0] if found else None
+            if not label and not warned:
+                warned = True
+                print(f"no job {args.name} yet{no_hosts_note()}", file=sys.stderr)
         if clock.slept() and label and is_local(get_host(label)):
             awake_since = time.time()  # a local job was asleep too: that's not a stall
         job = reader.read(label, [args.name])[args.name] if label else None

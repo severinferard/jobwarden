@@ -24,13 +24,12 @@ from .core import (
     Unreachable,
     config_path,
     get_host,
-    has_hosts_file,
     is_local,
     load_hosts,
     save_hosts,
     ssh_command,
 )
-from .reader import ENDED, Reader, all_hosts, clean, no_job, public
+from .reader import ENDED, Reader, all_hosts, clean, no_hosts_note, no_job, public
 
 JOBRUN = os.path.join(os.path.dirname(os.path.realpath(__file__)), "jobrun.py")
 REMOTE_JOBRUN = '"$HOME/.local/bin/jobrun"'
@@ -141,7 +140,8 @@ def status(args):
         print(
             "no jobs"
             + (f" in project {args.project}" if args.project else "")
-            + ("" if args.all else " (finished ones leave this view after a while; --all shows them)"),
+            + ("" if args.all else " (finished ones leave this view after a while; --all shows them)")
+            + no_hosts_note(),
             file=sys.stderr,
         )
     for j in jobs:
@@ -326,10 +326,6 @@ def main():
         if not hasattr(parsed, "func"):
             p.print_help()
             sys.exit(2)
-        if parsed.func in (status, clear, logs, stop, wait.run, watch.run) and not has_hosts_file():
-            print(
-                f"note: no .jobwarden/hosts.json from {os.getcwd()} upwards: only this machine is known", file=sys.stderr
-            )
         sys.exit(parsed.func(parsed))
     except UnknownHost as e:
         print(e, file=sys.stderr)

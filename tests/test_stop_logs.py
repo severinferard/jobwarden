@@ -148,6 +148,8 @@ class Friendly(Base):
         self.assertIn("no jobs", r.stderr)
         self.assertEqual(r.stdout, "")
         self.assertNotIn("no .jobwarden/hosts.json", self.jk("status").stderr)
+        self.jobrun("here", "--", "sleep 5")
+        self.assertEqual(self.jk("status", env=env, cwd=self.tmp).stderr, "", "a job was found: nothing to explain")
 
     def test_a_forgotten_separator_is_one_line(self):
         r = self.jk("run", "x", "sleep", "5")
