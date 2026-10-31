@@ -1,20 +1,25 @@
 # jobwarden
 
-Launch long jobs on your own machines over SSH, follow them from anywhere, and get woken when they need you. It's built for people, and for AI coding agents that shouldn't have to sit and watch a training run.
+**Watch long-running jobs live, on this machine or over SSH, and let your AI agent get woken when they need attention.**
+
+Start a job, see its progress as it runs, and walk away. It's built for AI coding agents like Claude Code, which shouldn't burn a session polling a training run or write a new watcher script each time: the agent waits on one command, which exits with a clear result as soon as the job finishes, fails, stalls, or fails your own health check. You follow along in the same live view.
 
 ```sh
-jobwarden run train --host box1 --gpu 2080 -- 'python train.py'
-jobwarden watch train     # a live view: bar, ETA, metrics
-jobwarden wait train      # blocks until it's done, failed, stalled, or your own check complains
+jobwarden run train --host box1 --gpu 2080 -- 'python train.py'   # leave out --host to run on this machine
+jobwarden watch train                                             # live progress: bar, ETA, metrics
+jobwarden wait train --check 'python3 tools/check_training.py'    # blocks, then exits with what happened
 ```
 
-- **Jobs survive you.** A job keeps running if your laptop sleeps or SSH drops.
-- **No daemon, no server, no database.** The only record is a JSON file next to the job on its host, so any viewer can come and go.
+- **Live progress.** Print one simple line and you get a bar, an ETA, metrics and stall detection, for one job or all of them.
+- **Made for agents.** One blocking command, one line of output, one exit code per outcome, and JSON wherever a program wants it.
+- **Local or remote.** The same commands work on your own machine and on hosts over SSH.
+- **Jobs survive you.** A job on a remote host keeps running if your laptop sleeps or SSH drops.
+- **No daemon, no server, no database.** The only record is a JSON file next to the job, so any viewer can come and go.
 - **"Exit 0" isn't taken on trust.** A job that ran too briefly or didn't write its output counts as failed.
 - **Safe on shared GPUs.** A busy card is refused, and a reservation stops two jobs picking the same one.
 - **No dependencies.** It's standard-library Python 3.10+, on your machine and on the hosts.
 
-Works with a laptop and a few SSH boxes, and rented pods. It isn't a cluster scheduler. It's been used from macOS with Linux hosts; other setups, and real rented pods, are untested.
+It suits a laptop with a few SSH boxes, or rented pods. It isn't a cluster scheduler. It's been used from macOS with Linux hosts; other setups, and real rented pods, are untested.
 
 ## Install
 
@@ -37,6 +42,16 @@ jobwarden install box1                               # copies jobrun to the host
 ```
 
 jobwarden finds the nearest `.jobwarden/hosts.json` from the current folder upwards. Outside a project it only knows your own machine, and says so. `ssh` to the host must already work without a password prompt, and the host needs `python3` 3.10+.
+
+## For AI agents
+
+The usual loop for a coding agent:
+
+1. Launch with `jobwarden run`, setting `--min-runtime` and `--expect` whenever you know what a healthy run looks like.
+2. Start `jobwarden wait <name>` as a background command, adding `--check` if a run can go wrong without failing.
+3. When it exits, read the line and the exit code ([the full list](#waiting-for-a-job)). Use `jobwarden logs <name>` to diagnose.
+
+In Claude Code, a background command's exit wakes the session, so the agent needs no polling at all. Any agent or script that can run a command and read its exit code can use the same loop, but how it gets woken depends on that tool. `examples/claude-code/job_launch.py` is a small Claude Code hook that reminds a session to do this after a launch.
 
 ## Running a job
 
@@ -125,16 +140,6 @@ jobwarden wait train --notify 'notify-send "$JOBWARDEN_TITLE" "$JOBWARDEN_BODY"'
 The command gets `$JOBWARDEN_TITLE`, `$JOBWARDEN_BODY`, `$JOBWARDEN_EVENT`, `$JOBWARDEN_JOB` and `$JOBWARDEN_HOST`.
 
 **Staying awake:** nothing notices a job's end while no reader is running, and a sleeping laptop isn't running one. The job itself carries on if it's on another machine, and the record is waiting when you're back. On a Mac, `caffeinate -is jobwarden wait train` prevents idle sleep, though not a closed lid.
-
-## For AI agents
-
-The usual loop for a coding agent:
-
-1. Launch with `jobwarden run`, setting `--min-runtime` and `--expect` whenever you know what a healthy run looks like.
-2. Start `jobwarden wait <name>` as a background command, adding `--check` if a run can go wrong without failing.
-3. When it exits, read the line and the exit code. Use `jobwarden logs <name>` to diagnose.
-
-`examples/claude-code/job_launch.py` is a small Claude Code hook that reminds a session to do this after a launch.
 
 ## Building your own dashboard
 

@@ -1,4 +1,4 @@
-"""Launch, watch and wake on long jobs across hosts (stdlib only). Hosts are per project, in the nearest .jobwarden/hosts.json
+"""Watch long-running jobs live, locally or over SSH, and wake your AI agent when they need attention (stdlib only). Hosts are per project, in the nearest .jobwarden/hosts.json
 from the current folder upwards; without one, only this machine is known.
 
 A --temporary host (a billed pod) accepts a new host key on first connection, since pods get a fresh one, and a job
